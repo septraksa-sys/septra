@@ -286,20 +286,16 @@ export function AdminBids({ user }: AdminBidsProps) {
     console.log('Pharmacy IDs found:', Array.from(pharmacyIds));
     
     const existingPharmacyOrders = storage.getPharmacyOrders();
-    const newPharmacyOrders: any[] = [];
+   const updatedPharmacyOrders = [...existingPharmacyOrders];
     
     Array.from(pharmacyIds).forEach(pharmacyId => {
       console.log('Processing pharmacy:', pharmacyId);
       
       // Check if pharmacy order already exists
-      const existingOrder = existingPharmacyOrders.find(
+     const existingOrderIndex = existingPharmacyOrders.findIndex(
         po => po.septraOrderId === septraOrderId && po.pharmacyId === pharmacyId
       );
       
-      if (existingOrder) {
-        console.log('Order already exists for pharmacy:', pharmacyId);
-        return; // Skip if already exists
-      }
 
       // Find all awarded lines for this pharmacy
       // Find all lines for this pharmacy
@@ -319,27 +315,62 @@ export function AdminBids({ user }: AdminBidsProps) {
 
       const totalValue = pharmacyLines.reduce((sum, line) => sum + line.totalPrice, 0);
 
-      const newOrder = {
-        id: `pharmacy_order_${Date.now()}_${pharmacyId}`,
-        septraOrderId: septraOrder.id,
-        pharmacyId,
-        lines: pharmacyLines,
-        totalValue,
-        status: 'pending' as const
-      };
-      
-      console.log('Creating pharmacy order for:', pharmacyId, 'with total value:', totalValue);
-      newPharmacyOrders.push(newOrder);
+     if (existingOrderIndex !== -1) {
+       // Update existing order by merging new lines
+       console.log('Updating existing order for pharmacy:', pharmacyId);
+       const existingOrder = updatedPharmacyOrders[existingOrderIndex];
+       
+       // Merge new lines with existing lines, avoiding duplicates
+       const mergedLines = [...existingOrder.lines];
+       
+       pharmacyLines.forEach(newLine => {
+         const existingLineIndex = mergedLines.findIndex(line => line.skuId === newLine.skuId);
+         if (existingLineIndex !== -1) {
+           // Update existing line
+           mergedLines[existingLineIndex] = newLine;
+         } else {
+           // Add new line
+           mergedLines.push(newLine);
+         }
+       });
+       
+       // Update the order with merged lines and recalculated total
+       updatedPharmacyOrders[existingOrderIndex] = {
+         ...existingOrder,
+         lines: mergedLines,
+         totalValue: mergedLines.reduce((sum, line) => sum + line.totalPrice, 0)
+       };
+       
+       console.log('Updated existing pharmacy order for:', pharmacyId, 'with total value:', updatedPharmacyOrders[existingOrderIndex].totalValue);
+     } else {
+       // Create new order
+       const newOrder = {
+         id: `pharmacy_order_${Date.now()}_${pharmacyId}`,
+         septraOrderId: septraOrder.id,
+         pharmacyId,
+         lines: pharmacyLines,
+         totalValue,
+         status: 'pending' as const
+       };
+       
+       console.log('Creating new pharmacy order for:', pharmacyId, 'with total value:', totalValue);
+       updatedPharmacyOrders.push(newOrder);
+     }
     });
 
-    console.log('New pharmacy orders to be saved:', newPharmacyOrders);
-
-    if (newPharmacyOrders.length > 0) {
-      console.log('💾 Saving', newPharmacyOrders.length, 'new pharmacy orders');
+   // Count how many orders were actually modified or created
+   const modifiedOrdersCount = updatedPharmacyOrders.length - existingPharmacyOrders.length + 
+     Array.from(pharmacyIds).filter(pharmacyId => 
+       existingPharmacyOrders.some(po => po.septraOrderId === septraOrderId && po.pharmacyId === pharmacyId)
+     ).length;
+   console.log('Updated pharmacy orders to be saved:', updatedPharmacyOrders.filter(po => po.septraOrderId === septraOrderId));
       console.log('Saving', newPharmacyOrders.length, 'new pharmacy orders');
+   if (modifiedOrdersCount > 0) {
+     console.log('💾 Saving', modifiedOrdersCount, 'modified/new pharmacy orders');
+     console.log('Saving', modifiedOrdersCount, 'modified/new pharmacy orders');
       
       // Save pharmacy orders
-      storage.setPharmacyOrders([...existingPharmacyOrders, ...newPharmacyOrders]);
+     storage.setPharmacyOrders(updatedPharmacyOrders);
 
       // Update Septra Order status to awaiting confirmations
       const updatedSeptraOrders = allSeptraOrders.map(o => 
@@ -354,19 +385,19 @@ export function AdminBids({ user }: AdminBidsProps) {
       console.log('📧 Sending notifications to pharmacies...');
       
       // Send notifications
-      toast.success(`Pharmacy orders generated for ${newPharmacyOrders.length} pharmacies`);
+     toast.success(`Pharmacy orders updated for ${Array.from(pharmacyIds).length} pharmacies`);
       toast.info('Pharmacies have been notified to confirm their orders');
       
       // Trigger browser notification if supported
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Septra Platform', {
-          body: `${newPharmacyOrders.length} pharmacy orders ready for confirmation`,
+         body: `${Array.from(pharmacyIds).length} pharmacy orders ready for confirmation`,
           icon: '/favicon.ico'
         });
       }
     } else {
-      console.log('⚠️ No new pharmacy orders to create');
-      console.log('No new pharmacy orders to create');
+     console.log('⚠️ No pharmacy orders to modify or create');
+     console.log('No pharmacy orders to modify or create');
     }
     
     console.log('🏥 === PHARMACY ORDER GENERATION COMPLETE ===');
