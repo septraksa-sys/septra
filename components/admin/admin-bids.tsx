@@ -364,10 +364,8 @@ export function AdminBids({ user }: AdminBidsProps) {
        existingPharmacyOrders.some(po => po.septraOrderId === septraOrderId && po.pharmacyId === pharmacyId)
      ).length;
    console.log('Updated pharmacy orders to be saved:', updatedPharmacyOrders.filter(po => po.septraOrderId === septraOrderId));
-      console.log('Saving', newPharmacyOrders.length, 'new pharmacy orders');
    if (modifiedOrdersCount > 0) {
      console.log('💾 Saving', modifiedOrdersCount, 'modified/new pharmacy orders');
-     console.log('Saving', modifiedOrdersCount, 'modified/new pharmacy orders');
       
       // Save pharmacy orders
      storage.setPharmacyOrders(updatedPharmacyOrders);
@@ -397,7 +395,6 @@ export function AdminBids({ user }: AdminBidsProps) {
       }
     } else {
      console.log('⚠️ No pharmacy orders to modify or create');
-     console.log('No pharmacy orders to modify or create');
     }
     
     console.log('🏥 === PHARMACY ORDER GENERATION COMPLETE ===');
