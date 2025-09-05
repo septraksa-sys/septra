@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, SeptraOrder, PharmacyOrder, SupplierOrder, SKU, Pharmacy, Supplier } from '@/types';
+import { User, SeptraOrder, PharmacyOrder, SupplierOrder, SKU, Pharmacy, Supplier, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,7 @@ export function AdminOrders({ user }: AdminOrdersProps) {
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
   const [pharmacyOrders, setPharmacyOrders] = useState<PharmacyOrder[]>([]);
   const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [skus, setSKUs] = useState<SKU[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -34,6 +35,7 @@ export function AdminOrders({ user }: AdminOrdersProps) {
     setSeptraOrders(storage.getSeptraOrders());
     setPharmacyOrders(storage.getPharmacyOrders());
     setSupplierOrders(storage.getSupplierOrders());
+    setRFQs(storage.getRFQs());
     setSKUs(storage.getSKUs());
     setPharmacies(storage.getPharmacies());
     setSuppliers(storage.getSuppliers());
@@ -154,12 +156,26 @@ export function AdminOrders({ user }: AdminOrdersProps) {
     return septraOrders.filter(o => o.status === status);
   };
 
-  const getPharmacyOrdersForSeptraOrder = (septraOrderId: string) => {
-    return pharmacyOrders.filter(po => po.septraOrderId === septraOrderId);
+  const getPharmacyOrdersForSeptraOrder = (septraOrderId: string): PharmacyOrder[] => {
+    // Find RFQs associated with this Septra Order
+    const associatedRFQs = rfqs.filter(rfq => rfq.septraOrderId === septraOrderId);
+    const rfqIds = associatedRFQs.map(rfq => rfq.id);
+    
+    // Find pharmacy orders for these RFQs
+    return pharmacyOrders.filter(po => rfqIds.includes(po.rfqId));
   };
 
-  const getSupplierOrdersForSeptraOrder = (septraOrderId: string) => {
-    return supplierOrders.filter(so => so.septraOrderId === septraOrderId);
+  const getSupplierOrdersForSeptraOrder = (septraOrderId: string): SupplierOrder[] => {
+    // Find RFQs associated with this Septra Order
+    const associatedRFQs = rfqs.filter(rfq => rfq.septraOrderId === septraOrderId);
+    const rfqIds = associatedRFQs.map(rfq => rfq.id);
+    
+    // Find supplier orders for these RFQs
+    return supplierOrders.filter(so => rfqIds.includes(so.rfqId));
+  };
+
+  const getRFQsForSeptraOrder = (septraOrderId: string): RFQ[] => {
+    return rfqs.filter(rfq => rfq.septraOrderId === septraOrderId);
   };
 
   const canGeneratePharmacyOrders = (order: SeptraOrder) => {
@@ -290,7 +306,9 @@ export function AdminOrders({ user }: AdminOrdersProps) {
 
                     {/* Order Lines Summary */}
                     <div className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-3">Order Lines</h4>
+                      <h4 className="font-medium mb-3">
+                        Order Lines ({getRFQsForSeptraOrder(order.id).length} RFQs)
+                      </h4>
                       <div className="space-y-2">
                         {order.lines.map((line) => (
                           <div key={line.id} className="flex items-center justify-between text-sm">
@@ -305,6 +323,13 @@ export function AdminOrders({ user }: AdminOrdersProps) {
                             </div>
                           </div>
                         ))}
+                        
+                        {/* Show RFQ information */}
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-xs text-gray-500">
+                            Associated RFQs: {getRFQsForSeptraOrder(order.id).map(rfq => rfq.title).join(', ')}
+                          </p>
+                        </div>
                       </div>
                     </div>
 

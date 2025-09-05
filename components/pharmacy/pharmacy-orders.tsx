@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { User, PharmacyOrder, SeptraOrder, SKU, Pharmacy, Escrow } from '@/types';
+import { User, PharmacyOrder, SeptraOrder, SKU, Pharmacy, Escrow, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ interface PharmacyOrdersProps {
 export function PharmacyOrders({ user }: PharmacyOrdersProps) {
   const [pharmacyOrders, setPharmacyOrders] = useState<PharmacyOrder[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [skus, setSKUs] = useState<SKU[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<PharmacyOrder | null>(null);
   const [confirmationData, setConfirmationData] = useState({
@@ -41,6 +42,7 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
     const myOrders = allPharmacyOrders.filter(o => o.pharmacyId === user.profileId);
     setPharmacyOrders(myOrders);
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQs(storage.getRFQs());
     setSKUs(storage.getSKUs());
     
     console.log('📊 Pharmacy Orders Data Loaded:');
@@ -62,8 +64,14 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
     return sku ? `${sku.name} (${sku.code})` : skuId;
   };
 
-  const getSeptraOrder = (septraOrderId: string) => {
-    return septraOrders.find(o => o.id === septraOrderId);
+  const getRFQ = (rfqId: string): RFQ | undefined => {
+    return rfqs.find(r => r.id === rfqId);
+  };
+
+  const getSeptraOrderFromRFQ = (rfqId: string): SeptraOrder | undefined => {
+    const rfq = getRFQ(rfqId);
+    if (!rfq) return undefined;
+    return septraOrders.find(o => o.id === rfq.septraOrderId);
   };
 
   const handleConfirmOrder = () => {
@@ -96,7 +104,7 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
     toast.info('Septra has been notified of your confirmation');
 
     // Check if all pharmacy orders for this Septra order are confirmed
-    checkAndUpdateSeptraOrderStatus(selectedOrder.septraOrderId);
+    checkAndUpdateSeptraOrderStatus(selectedOrder.rfqId);
 
     loadData();
     setSelectedOrder(null);
@@ -109,13 +117,13 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
     
     // Check if escrow already exists
     const existingEscrow = existingEscrows.find(
-      e => e.septraOrderId === pharmacyOrder.septraOrderId && e.pharmacyId === pharmacyOrder.pharmacyId
+      e => e.rfqId === pharmacyOrder.rfqId && e.pharmacyId === pharmacyOrder.pharmacyId
     );
     
     if (!existingEscrow) {
       const newEscrow: Escrow = {
         id: `escrow_${Date.now()}_${pharmacyOrder.pharmacyId}`,
-        septraOrderId: pharmacyOrder.septraOrderId,
+        rfqId: pharmacyOrder.rfqId,
         pharmacyId: pharmacyOrder.pharmacyId,
         amount: pharmacyOrder.totalValue,
         status: 'funded', // Simulate automatic funding
@@ -128,18 +136,22 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
     }
   };
 
-  const checkAndUpdateSeptraOrderStatus = (septraOrderId: string) => {
+  const checkAndUpdateSeptraOrderStatus = (rfqId: string) => {
+    // Get all pharmacy orders for this RFQ
     const allPharmacyOrders = storage.getPharmacyOrders();
-    const ordersForSeptraOrder = allPharmacyOrders.filter(po => po.septraOrderId === septraOrderId);
+    const ordersForRFQ = allPharmacyOrders.filter(po => po.rfqId === rfqId);
     
     // Check if all pharmacy orders are confirmed
-    const allConfirmed = ordersForSeptraOrder.every(po => po.status === 'confirmed');
+    const allConfirmed = ordersForRFQ.every(po => po.status === 'confirmed');
     
-    if (allConfirmed && ordersForSeptraOrder.length > 0) {
-      // Update Septra Order status to scheduled
+    if (allConfirmed && ordersForRFQ.length > 0) {
+      // Get the associated Septra Order and update its status
+      const rfq = getRFQ(rfqId);
+      if (!rfq) return;
+      
       const allSeptraOrders = storage.getSeptraOrders();
       const updatedSeptraOrders = allSeptraOrders.map(so => 
-        so.id === septraOrderId 
+        so.id === rfq.septraOrderId 
           ? { ...so, status: 'scheduled' as const, updatedAt: new Date() }
           : so
       );
@@ -216,17 +228,23 @@ export function PharmacyOrders({ user }: PharmacyOrdersProps) {
       ) : (
         <div className="grid gap-6">
           {pharmacyOrders.map((order) => {
-            const septraOrder = getSeptraOrder(order.septraOrderId);
+            const rfq = getRFQ(order.rfqId);
+            const septraOrder = getSeptraOrderFromRFQ(order.rfqId);
             return (
               <Card key={order.id}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle className="text-lg">
-                        {septraOrder?.title || `Order ${order.id.slice(-8)}`}
+                        {rfq?.title || septraOrder?.title || `Order ${order.id.slice(-8)}`}
                       </CardTitle>
                       <CardDescription>
-                        {septraOrder?.description}
+                        {rfq?.description || septraOrder?.description}
+                        {rfq && (
+                          <span className="text-xs text-gray-500 block mt-1">
+                            RFQ: {rfq.title}
+                          </span>
+                        )}
                       </CardDescription>
                     </div>
                     <div className="flex items-center space-x-3">

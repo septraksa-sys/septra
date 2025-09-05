@@ -1,6 +1,7 @@
 import { 
   SKU, Pharmacy, Supplier, PharmacyDemand, SeptraOrder, RFQ, Bid, 
-  PharmacyOrder, SupplierOrder, Escrow, LogisticsEntry, User 
+  PharmacyOrder, SupplierOrder, Escrow, LogisticsEntry, User,
+  RFQLine, AwardedBid
 } from '@/types';
 
 class LocalStorage {
@@ -67,6 +68,24 @@ class LocalStorage {
 
   setRFQs(rfqs: RFQ[]): void {
     this.setItem('septra_rfqs', rfqs);
+  }
+
+  // RFQ Lines
+  getRFQLines(): RFQLine[] {
+    return this.getItem<RFQLine>('septra_rfq_lines');
+  }
+
+  setRFQLines(lines: RFQLine[]): void {
+    this.setItem('septra_rfq_lines', lines);
+  }
+
+  // Awarded Bids
+  getAwardedBids(): AwardedBid[] {
+    return this.getItem<AwardedBid>('septra_awarded_bids');
+  }
+
+  setAwardedBids(awardedBids: AwardedBid[]): void {
+    this.setItem('septra_awarded_bids', awardedBids);
   }
 
   // Bids
@@ -145,10 +164,48 @@ class LocalStorage {
     const keys = [
       'septra_skus', 'septra_pharmacies', 'septra_suppliers', 
       'septra_pharmacy_demands', 'septra_orders', 'septra_rfqs', 
-      'septra_bids', 'septra_pharmacy_orders', 'septra_supplier_orders',
+      'septra_rfq_lines', 'septra_awarded_bids', 'septra_bids', 
+      'septra_pharmacy_orders', 'septra_supplier_orders',
       'septra_escrows', 'septra_logistics', 'septra_users', 'septra_current_user'
     ];
     keys.forEach(key => window.localStorage.removeItem(key));
+  }
+
+  // Schema validation helper
+  validateSchema(): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    try {
+      // Validate that all RFQs have corresponding SeptraOrders
+      const rfqs = this.getRFQs();
+      const septraOrders = this.getSeptraOrders();
+      
+      rfqs.forEach(rfq => {
+        if (!septraOrders.find(order => order.id === rfq.septraOrderId)) {
+          errors.push(`RFQ ${rfq.id} references non-existent SeptraOrder ${rfq.septraOrderId}`);
+        }
+      });
+
+      // Validate that all PharmacyOrders reference valid RFQs
+      const pharmacyOrders = this.getPharmacyOrders();
+      pharmacyOrders.forEach(order => {
+        if (!rfqs.find(rfq => rfq.id === order.rfqId)) {
+          errors.push(`PharmacyOrder ${order.id} references non-existent RFQ ${order.rfqId}`);
+        }
+      });
+
+      // Validate that all SupplierOrders reference valid RFQs
+      const supplierOrders = this.getSupplierOrders();
+      supplierOrders.forEach(order => {
+        if (!rfqs.find(rfq => rfq.id === order.rfqId)) {
+          errors.push(`SupplierOrder ${order.id} references non-existent RFQ ${order.rfqId}`);
+        }
+      });
+
+      return { isValid: errors.length === 0, errors };
+    } catch (error) {
+      return { isValid: false, errors: [`Schema validation failed: ${error}`] };
+    }
   }
 }
 

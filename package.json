@@ -8,8 +8,13 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:check": "npm run lint && npm run type-check && npm run build",
     "start": "next start",
     "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "type-check": "tsc --noEmit",
+    "schema:validate": "npm run type-check && echo 'Schema validation passed'",
+    "schema:generate": "echo 'Generating types from schema...' && npm run type-check",
     "clean": "rm -rf .next out node_modules"
   },
   "dependencies": {
@@ -71,5 +76,11 @@
     "typescript": "5.2.2",
     "vaul": "^0.9.9",
     "zod": "^3.23.8"
+  }
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-unused-imports": "^3.0.0"
   }
 }

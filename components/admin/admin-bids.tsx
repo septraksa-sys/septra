@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { User, Bid, RFQ, SKU, Supplier, SeptraOrder, SupplierOrder, SupplierOrderLine } from '@/types';
+import { User, Bid, RFQ, SKU, Supplier, SeptraOrder, SupplierOrder, SupplierOrderLine, AwardedBid, RFQLine } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +20,8 @@ interface AdminBidsProps {
 export function AdminBids({ user }: AdminBidsProps) {
   const [bids, setBids] = useState<Bid[]>([]);
   const [rfqs, setRFQs] = useState<RFQ[]>([]);
+  const [rfqLines, setRFQLines] = useState<RFQLine[]>([]);
+  const [awardedBids, setAwardedBids] = useState<AwardedBid[]>([]);
   const [skus, setSKUs] = useState<SKU[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
@@ -32,6 +34,8 @@ export function AdminBids({ user }: AdminBidsProps) {
   const loadData = () => {
     setBids(storage.getBids());
     setRFQs(storage.getRFQs());
+    setRFQLines(storage.getRFQLines());
+    setAwardedBids(storage.getAwardedBids());
     setSKUs(storage.getSKUs());
     setSuppliers(storage.getSuppliers());
     setSeptraOrders(storage.getSeptraOrders());
@@ -107,6 +111,31 @@ export function AdminBids({ user }: AdminBidsProps) {
     const bid = bids.find(b => b.id === bidId);
     if (!bid) return;
 
+    // Find the corresponding RFQ line
+    const rfqLine = rfqLines.find(line => 
+      line.rfqId === bid.rfqId && line.skuId === bid.skuId
+    );
+    
+    if (!rfqLine) {
+      toast.error('RFQ line not found for this bid');
+      return;
+    }
+
+    // Create awarded bid record
+    const newAwardedBid: AwardedBid = {
+      id: `awarded_${Date.now()}`,
+      bidId: bid.id,
+      rfqLineId: rfqLine.id,
+      awardedPrice: bid.unitPrice,
+      awardedQuantity: Math.min(bid.quantity, rfqLine.totalQuantity),
+      awardedAt: new Date(),
+      bid: bid // Embed for easier access
+    };
+
+    // Save awarded bid
+    const allAwardedBids = storage.getAwardedBids();
+    storage.setAwardedBids([...allAwardedBids, newAwardedBid]);
+
     // Update bid status
     const updatedBids = bids.map(b => 
       b.id === bidId 
@@ -117,6 +146,7 @@ export function AdminBids({ user }: AdminBidsProps) {
     );
     storage.setBids(updatedBids);
 
+    // Legacy workflow - Update Septra Order with awarded supplier
     // Update Septra Order with awarded supplier
     console.log('🏆 BID AWARDED - Starting automated workflow');
     console.log('Awarded bid:', bid);
@@ -172,6 +202,26 @@ export function AdminBids({ user }: AdminBidsProps) {
 
     loadData();
     toast.success('Bid awarded successfully');
+  };
+
+  const isLineAwarded = (rfqId: string, skuId: string): boolean => {
+    const rfqLine = rfqLines.find(line => 
+      line.rfqId === rfqId && line.skuId === skuId
+    );
+    
+    if (!rfqLine) return false;
+    
+    return awardedBids.some(award => award.rfqLineId === rfqLine.id);
+  };
+
+  const getAwardedBidForLine = (rfqId: string, skuId: string): AwardedBid | undefined => {
+    const rfqLine = rfqLines.find(line => 
+      line.rfqId === rfqId && line.skuId === skuId
+    );
+    
+    if (!rfqLine) return undefined;
+    
+    return awardedBids.find(award => award.rfqLineId === rfqLine.id);
   };
 
   const createSupplierOrder = (awardedBid: Bid, septraOrder: SeptraOrder) => {
@@ -567,13 +617,14 @@ export function AdminBids({ user }: AdminBidsProps) {
                       <CardContent className="space-y-6">
                         {Object.entries(skuGroups).map(([skuId, skuBids]) => {
                           const rankedBids = rankBids(skuBids);
-                          const awardedBid = skuBids.find(b => b.status === 'awarded');
+                          const lineAwarded = isLineAwarded(rfq.id, skuId);
+                          const awardedBidRecord = getAwardedBidForLine(rfq.id, skuId);
                           
                           return (
                             <div key={skuId} className="border rounded-lg p-4">
                               <div className="flex items-center justify-between mb-4">
                                 <h4 className="font-medium">{getSKUName(skuId)}</h4>
-                                {awardedBid ? (
+                                {lineAwarded ? (
                                   <Badge className="bg-green-100 text-green-800">
                                     <Award className="h-3 w-3 mr-1" />
                                     Awarded
@@ -600,14 +651,14 @@ export function AdminBids({ user }: AdminBidsProps) {
                                 </TableHeader>
                                 <TableBody>
                                   {rankedBids.map((bid, index) => (
-                                    <TableRow key={bid.id} className={index === 0 && !awardedBid ? 'bg-green-50' : ''}>
+                                    <TableRow key={bid.id} className={index === 0 && !lineAwarded ? 'bg-green-50' : ''}>
                                       <TableCell>
-                                        {index === 0 && !awardedBid && (
+                                        {index === 0 && !lineAwarded && (
                                           <Badge variant="outline" className="text-green-600 border-green-600">
                                             #1
                                           </Badge>
                                         )}
-                                        {index === 0 && awardedBid && bid.status === 'awarded' && (
+                                        {index === 0 && lineAwarded && bid.status === 'awarded' && (
                                           <Badge className="bg-green-100 text-green-800">
                                             Winner
                                           </Badge>
@@ -654,7 +705,7 @@ export function AdminBids({ user }: AdminBidsProps) {
                                         </Badge>
                                       </TableCell>
                                       <TableCell>
-                                        {!awardedBid && bid.status === 'submitted' && (
+                                        {!lineAwarded && bid.status === 'submitted' && (
                                           <Button
                                             size="sm"
                                             variant={index === 0 ? 'default' : 'outline'}

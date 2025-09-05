@@ -1,4 +1,4 @@
-import { User, SKU, Pharmacy, Supplier } from '@/types';
+import { User, SKU, Pharmacy, Supplier, RFQLine, AwardedBid } from '@/types';
 import { storage } from './storage';
 
 export function seedDatabase() {
@@ -128,11 +128,19 @@ export function seedDatabase() {
     if (storage.getPharmacyDemands().length === 0) storage.setPharmacyDemands([]);
     if (storage.getSeptraOrders().length === 0) storage.setSeptraOrders([]);
     if (storage.getRFQs().length === 0) storage.setRFQs([]);
+    if (storage.getRFQLines().length === 0) storage.setRFQLines([]);
+    if (storage.getAwardedBids().length === 0) storage.setAwardedBids([]);
     if (storage.getBids().length === 0) storage.setBids([]);
     if (storage.getPharmacyOrders().length === 0) storage.setPharmacyOrders([]);
     if (storage.getSupplierOrders().length === 0) storage.setSupplierOrders([]);
     if (storage.getEscrows().length === 0) storage.setEscrows([]);
     if (storage.getLogisticsEntries().length === 0) storage.setLogisticsEntries([]);
+    
+    // Validate schema after seeding
+    const validation = storage.validateSchema();
+    if (!validation.isValid) {
+      console.warn('⚠️ Schema validation warnings:', validation.errors);
+    }
     
     console.log('✅ Database seeded successfully with default data');
     return true;
@@ -151,6 +159,7 @@ export function getAvailableCategories(): string[] {
 // Helper function to get sample data for development
 export function getSampleData() {
   return {
-    availableCategories: getAvailableCategories()
+    availableCategories: getAvailableCategories(),
+    schemaVersion: '2.0.0-rfq-central'
   };
 }

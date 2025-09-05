@@ -1,9 +1,11 @@
-// Updated TypeScript interfaces for RFQ-central architecture
+// RFQ-Central Architecture - Updated TypeScript interfaces
+// This schema reflects the migration from SeptraOrder-central to RFQ-central design
 
 export interface User {
   id: string;
   email: string;
   role: 'pharmacy' | 'supplier' | 'admin';
+  profileId?: string; // For backward compatibility
   name?: string;
   address?: string;
   phone?: string;
@@ -14,6 +16,7 @@ export interface User {
   updatedAt?: Date;
 }
 
+// Core SKU entity - remains unchanged but enhanced
 export interface SKU {
   id: string;
   code: string;
@@ -37,6 +40,7 @@ export interface SKU {
   createdBy: string;
 }
 
+// Individual pharmacy demands - input to the aggregation process
 export interface PharmacyDemand {
   id: string;
   pharmacyId: string;
@@ -49,7 +53,8 @@ export interface PharmacyDemand {
   updatedAt: Date;
 }
 
-// Simplified SeptraOrder - now mainly for demand aggregation and high-level tracking
+// SeptraOrder - Now simplified for demand aggregation and high-level tracking only
+// The core business logic has moved to RFQ
 export interface SeptraOrder {
   id: string;
   title: string;
@@ -60,7 +65,9 @@ export interface SeptraOrder {
   updatedAt: Date;
 }
 
-// RFQ is now the central entity for bidding process
+// RFQ - THE CENTRAL ENTITY for the bidding process
+// This is where the main business logic now resides
+// All other entities reference RFQ instead of SeptraOrder
 export interface RFQ {
   id: string;
   septraOrderId: string;
@@ -72,12 +79,13 @@ export interface RFQ {
   terms?: string;
   status: 'open' | 'closed' | 'awarded';
   estimatedValue?: number;
-  lines: RFQLine[]; // Include lines for easier data handling
+  lines: RFQLine[]; // Embedded for easier data handling
   createdAt: Date;
   updatedAt: Date;
 }
 
-// RFQ Lines replace SeptraOrderLines
+// RFQLine - Replaces the old SeptraOrderLine
+// Now linked to RFQ instead of SeptraOrder
 export interface RFQLine {
   id: string;
   rfqId: string;
@@ -87,10 +95,11 @@ export interface RFQLine {
     pharmacyId: string;
     quantity: number;
   }[];
-  awardedBid?: AwardedBid; // Include awarded bid info for easier access
+  awardedBid?: AwardedBid; // Embedded for easier access
   createdAt: Date;
 }
 
+// Bid entity - now references RFQ directly
 export interface Bid {
   id: string;
   rfqId: string;
@@ -105,7 +114,7 @@ export interface Bid {
   submittedAt: Date;
 }
 
-// New entity to track awarded bids
+// AwardedBid - New entity to track which bids were selected
 export interface AwardedBid {
   id: string;
   bidId: string;
@@ -113,10 +122,11 @@ export interface AwardedBid {
   awardedPrice: number;
   awardedQuantity: number;
   awardedAt: Date;
-  bid?: Bid; // Include bid details for easier access
+  bid?: Bid; // Embedded for easier access
 }
 
-// Updated to reference RFQ instead of SeptraOrder
+// PharmacyOrder - Now references RFQ instead of SeptraOrder
+// Generated after bids are awarded
 export interface PharmacyOrder {
   id: string;
   rfqId: string; // Changed from septraOrderId
@@ -141,7 +151,8 @@ export interface PharmacyOrderLine {
   status: 'pending' | 'confirmed' | 'declined';
 }
 
-// Updated to reference RFQ instead of SeptraOrder
+// SupplierOrder - Now references RFQ instead of SeptraOrder
+// Generated for awarded suppliers
 export interface SupplierOrder {
   id: string;
   rfqId: string; // Changed from septraOrderId
@@ -167,7 +178,8 @@ export interface SupplierOrderLine {
   }[];
 }
 
-// Updated to reference RFQ instead of SeptraOrder
+// Escrow - Now references RFQ instead of SeptraOrder
+// Manages secure payments
 export interface Escrow {
   id: string;
   rfqId: string; // Changed from septraOrderId
@@ -180,7 +192,8 @@ export interface Escrow {
   reason?: string;
 }
 
-// Updated to reference RFQ instead of SeptraOrder
+// LogisticsEntry - Now references RFQ instead of SeptraOrder
+// Tracks delivery and shipment
 export interface LogisticsEntry {
   id: string;
   rfqId: string; // Changed from septraOrderId
@@ -194,7 +207,8 @@ export interface LogisticsEntry {
   notes?: string;
 }
 
-// Legacy interfaces for backward compatibility (deprecated)
+// Legacy interfaces - Maintained for backward compatibility
+// These will be phased out in future versions
 export interface Pharmacy {
   id: string;
   name: string;
@@ -214,6 +228,7 @@ export interface Supplier {
   categories: string[];
 }
 
+// Analytics interface - Updated to work with RFQ-central model
 export interface Analytics {
   totalOrders: number;
   totalValue: number;
@@ -236,7 +251,8 @@ export interface Analytics {
   }[];
 }
 
-// Helper types for the new RFQ-central workflow
+// Helper types for RFQ-central workflow
+// These provide enriched data for UI components
 export interface RFQWithDetails extends RFQ {
   septraOrder: SeptraOrder;
   lines: (RFQLine & {
@@ -263,3 +279,24 @@ export interface SupplierOrderWithDetails extends SupplierOrder {
   supplier: User;
   lines: (SupplierOrderLine & { sku: SKU })[];
 }
+
+// Schema validation helpers
+export interface SchemaValidationError {
+  field: string;
+  message: string;
+  code: string;
+}
+
+export interface SchemaValidationResult {
+  isValid: boolean;
+  errors: SchemaValidationError[];
+}
+
+// Type guards for runtime validation
+export const isRFQ = (obj: any): obj is RFQ => {
+  return obj && typeof obj.id === 'string' && typeof obj.septraOrderId === 'string';
+};
+
+export const isPharmacyOrder = (obj: any): obj is PharmacyOrder => {
+  return obj && typeof obj.id === 'string' && typeof obj.rfqId === 'string';
+};

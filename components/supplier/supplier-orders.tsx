@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { User, SupplierOrder, SKU, SeptraOrder } from '@/types';
+import { User, SupplierOrder, SKU, SeptraOrder, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,7 @@ export function SupplierOrders({ user }: SupplierOrdersProps) {
   const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
   const [skus, setSKUs] = useState<SKU[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SupplierOrder | null>(null);
   const [shippingForm, setShippingForm] = useState({
     trackingNumber: '',
@@ -40,6 +41,7 @@ export function SupplierOrders({ user }: SupplierOrdersProps) {
     setSupplierOrders(myOrders);
     setSKUs(storage.getSKUs());
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQs(storage.getRFQs());
     
     console.log('📊 Supplier Orders Data Loaded:');
     console.log('- All supplier orders:', allSupplierOrders.length);
@@ -58,9 +60,20 @@ export function SupplierOrders({ user }: SupplierOrdersProps) {
     return sku ? `${sku.name} (${sku.code})` : skuId;
   };
 
-  const getSeptraOrderTitle = (septraOrderId: string) => {
-    const order = septraOrders.find(o => o.id === septraOrderId);
-    return order?.title || `Order ${septraOrderId.slice(-8)}`;
+  const getRFQ = (rfqId: string): RFQ | undefined => {
+    return rfqs.find(r => r.id === rfqId);
+  };
+
+  const getSeptraOrderFromRFQ = (rfqId: string): SeptraOrder | undefined => {
+    const rfq = getRFQ(rfqId);
+    if (!rfq) return undefined;
+    return septraOrders.find(o => o.id === rfq.septraOrderId);
+  };
+
+  const getOrderTitle = (rfqId: string): string => {
+    const rfq = getRFQ(rfqId);
+    const septraOrder = getSeptraOrderFromRFQ(rfqId);
+    return rfq?.title || septraOrder?.title || `Order ${rfqId.slice(-8)}`;
   };
 
   const getStatusColor = (status: SupplierOrder['status']) => {
@@ -90,7 +103,7 @@ export function SupplierOrders({ user }: SupplierOrdersProps) {
     // Also update logistics entries
     const logistics = storage.getLogisticsEntries();
     const updatedLogistics = logistics.map(l => {
-      if (l.septraOrderId === selectedOrder?.septraOrderId && l.supplierId === user.profileId) {
+      if (l.rfqId === selectedOrder?.rfqId && l.supplierId === user.profileId) {
         const logisticsStatus = newStatus === 'shipped' ? 'picked_up' : 
                               newStatus === 'delivered' ? 'delivered' : l.status;
         return {
@@ -176,10 +189,18 @@ export function SupplierOrders({ user }: SupplierOrdersProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-lg">
-                      {getSeptraOrderTitle(order.septraOrderId)}
+                      {getOrderTitle(order.rfqId)}
                     </CardTitle>
                     <CardDescription>
                       Assigned: {new Date(order.assignedAt).toLocaleDateString()}
+                      {(() => {
+                        const rfq = getRFQ(order.rfqId);
+                        return rfq && (
+                          <span className="text-xs text-gray-500 block mt-1">
+                            RFQ: {rfq.title}
+                          </span>
+                        );
+                      })()}
                     </CardDescription>
                   </div>
                   <div className="text-right space-y-2">

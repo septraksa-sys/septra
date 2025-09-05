@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, RFQ, SeptraOrder } from '@/types';
+import { User, RFQ, SeptraOrder, RFQLine } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,7 @@ interface AdminRFQsProps {
 export function AdminRFQs({ user }: AdminRFQsProps) {
   const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqLines, setRFQLines] = useState<RFQLine[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SeptraOrder | null>(null);
   const [rfqForm, setRFQForm] = useState({
     title: '',
@@ -43,6 +44,7 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
     }));
     setRFQs(rfqs);
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQLines(storage.getRFQLines());
   };
 
   const getOrdersEligibleForRFQ = () => {
@@ -55,12 +57,22 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
     return septraOrders.find(o => o.id === septraOrderId);
   };
 
+  const getRFQLines = (rfqId: string): RFQLine[] => {
+    return rfqLines.filter(line => line.rfqId === rfqId);
+  };
+
+  const getTotalQuantityForRFQ = (rfqId: string): number => {
+    const lines = getRFQLines(rfqId);
+    return lines.reduce((total, line) => total + line.totalQuantity, 0);
+  };
+
   const publishRFQ = () => {
     if (!selectedOrder || !rfqForm.title || !rfqForm.biddingDeadline) {
       toast.error('Please fill in required fields');
       return;
     }
 
+    // Create RFQ with proper schema compliance
     const newRFQ: RFQ = {
       id: `rfq_${Date.now()}`,
       septraOrderId: selectedOrder.id,
@@ -71,11 +83,34 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
       deliveryRequirement: rfqForm.deliveryRequirement ? new Date(rfqForm.deliveryRequirement) : undefined,
       terms: rfqForm.terms,
       status: 'open'
+      status: 'open',
+      lines: [], // Will be populated separately
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
 
     // Save RFQ
     const allRFQs = storage.getRFQs();
     storage.setRFQs([...allRFQs, newRFQ]);
+
+    // Create RFQ Lines from SeptraOrder lines
+    const newRFQLines: RFQLine[] = selectedOrder.lines.map((line, index) => ({
+      id: `rfq_line_${Date.now()}_${index}`,
+      rfqId: newRFQ.id,
+      skuId: line.skuId,
+      totalQuantity: line.totalQuantity,
+      demandBreakdown: line.demandBreakdown,
+      createdAt: new Date()
+    }));
+
+    // Save RFQ Lines
+    const allRFQLines = storage.getRFQLines();
+    storage.setRFQLines([...allRFQLines, ...newRFQLines]);
+
+    // Update the RFQ with embedded lines for easier access
+    newRFQ.lines = newRFQLines;
+    const updatedRFQs = [...allRFQs, newRFQ];
+    storage.setRFQs(updatedRFQs);
 
     // Update Septra Order status
     const updatedOrders = septraOrders.map(o => 
@@ -391,8 +426,9 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
                           <div className="font-medium">
                             {septraOrder?.title || 'Unknown Order'}
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {septraOrder?.lines.length || 0} lines
+                          <div className="text-sm text-gray-500"> 
+                            {getRFQLines(rfq.id).length} lines • 
+                            {getTotalQuantityForRFQ(rfq.id)} total units
                           </div>
                         </TableCell>
                         <TableCell>
