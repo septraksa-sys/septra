@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, PharmacyOrder, LogisticsEntry, Escrow, SeptraOrder } from '@/types';
+import { User, PharmacyOrder, LogisticsEntry, Escrow, SeptraOrder, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,7 @@ export function PharmacyTracking({ user }: PharmacyTrackingProps) {
   const [logistics, setLogistics] = useState<LogisticsEntry[]>([]);
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
 
   useEffect(() => {
     loadData();
@@ -36,18 +37,25 @@ export function PharmacyTracking({ user }: PharmacyTrackingProps) {
     setEscrows(myEscrows);
 
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQs(storage.getRFQs());
   };
 
-  const getSeptraOrder = (septraOrderId: string) => {
-    return septraOrders.find(o => o.id === septraOrderId);
+  const getRFQ = (rfqId: string): RFQ | undefined => {
+    return rfqs.find(r => r.id === rfqId);
   };
 
-  const getOrderLogistics = (septraOrderId: string) => {
-    return logistics.filter(l => l.septraOrderId === septraOrderId);
+  const getSeptraOrderFromRFQ = (rfqId: string): SeptraOrder | undefined => {
+    const rfq = getRFQ(rfqId);
+    if (!rfq) return undefined;
+    return septraOrders.find(o => o.id === rfq.septraOrderId);
   };
 
-  const getOrderEscrow = (septraOrderId: string) => {
-    return escrows.find(e => e.septraOrderId === septraOrderId);
+  const getOrderLogistics = (rfqId: string): LogisticsEntry[] => {
+    return logistics.filter(l => l.rfqId === rfqId);
+  };
+
+  const getOrderEscrow = (rfqId: string): Escrow | undefined => {
+    return escrows.find(e => e.rfqId === rfqId);
   };
 
   const getLogisticsProgress = (status: LogisticsEntry['status']) => {
@@ -115,9 +123,10 @@ export function PharmacyTracking({ user }: PharmacyTrackingProps) {
       ) : (
         <div className="grid gap-6">
           {pharmacyOrders.map((order) => {
-            const septraOrder = getSeptraOrder(order.septraOrderId);
-            const orderLogistics = getOrderLogistics(order.septraOrderId);
-            const escrow = getOrderEscrow(order.septraOrderId);
+            const rfq = getRFQ(order.rfqId);
+            const septraOrder = getSeptraOrderFromRFQ(order.rfqId);
+            const orderLogistics = getOrderLogistics(order.rfqId);
+            const escrow = getOrderEscrow(order.rfqId);
 
             return (
               <Card key={order.id}>
@@ -125,10 +134,15 @@ export function PharmacyTracking({ user }: PharmacyTrackingProps) {
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle className="text-lg">
-                        {septraOrder?.title || `Order ${order.id.slice(-8)}`}
+                        {rfq?.title || septraOrder?.title || `Order ${order.id.slice(-8)}`}
                       </CardTitle>
                       <CardDescription>
                         Total Value: ${order.totalValue.toFixed(2)}
+                        {rfq && (
+                          <span className="text-xs text-gray-500 block mt-1">
+                            RFQ: {rfq.title}
+                          </span>
+                        )}
                       </CardDescription>
                     </div>
                     <Badge className="bg-green-100 text-green-800">

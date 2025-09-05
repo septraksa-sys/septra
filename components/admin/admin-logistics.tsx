@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { User, LogisticsEntry, SupplierOrder, SeptraOrder, Pharmacy, Supplier } from '@/types';
+import { User, LogisticsEntry, SupplierOrder, SeptraOrder, Pharmacy, Supplier, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +23,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
   const [logistics, setLogistics] = useState<LogisticsEntry[]>([]);
   const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SupplierOrder | null>(null);
@@ -44,6 +45,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
     setLogistics(storage.getLogisticsEntries());
     setSupplierOrders(storage.getSupplierOrders());
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQs(storage.getRFQs());
     setPharmacies(storage.getPharmacies());
     setSuppliers(storage.getSuppliers());
   };
@@ -68,7 +70,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
       
       pharmacyIds.forEach(pharmacyId => {
         const hasLogistics = existingLogistics.some(l => 
-          l.septraOrderId === order.septraOrderId && 
+          l.rfqId === order.rfqId && 
           l.supplierId === order.supplierId &&
           l.pharmacyId === pharmacyId
         );
@@ -76,7 +78,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
         if (!hasLogistics) {
           const newEntry: LogisticsEntry = {
             id: `logistics_${Date.now()}_${order.supplierId}_${pharmacyId}`,
-            septraOrderId: order.septraOrderId,
+            rfqId: order.rfqId,
             supplierId: order.supplierId,
             pharmacyId: pharmacyId,
             status: order.status === 'in_fulfillment' ? 'pending' : 
@@ -108,9 +110,20 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
     return supplier?.name || supplierId;
   };
 
-  const getSeptraOrderTitle = (septraOrderId: string) => {
-    const order = septraOrders.find(o => o.id === septraOrderId);
-    return order?.title || `Order ${septraOrderId.slice(-8)}`;
+  const getRFQ = (rfqId: string): RFQ | undefined => {
+    return rfqs.find(r => r.id === rfqId);
+  };
+
+  const getSeptraOrderFromRFQ = (rfqId: string): SeptraOrder | undefined => {
+    const rfq = getRFQ(rfqId);
+    if (!rfq) return undefined;
+    return septraOrders.find(o => o.id === rfq.septraOrderId);
+  };
+
+  const getOrderTitle = (rfqId: string): string => {
+    const rfq = getRFQ(rfqId);
+    const septraOrder = getSeptraOrderFromRFQ(rfqId);
+    return rfq?.title || septraOrder?.title || `Order ${rfqId.slice(-8)}`;
   };
 
   const getStatusColor = (status: LogisticsEntry['status']) => {
@@ -149,7 +162,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
 
     const newLogistics: LogisticsEntry = {
       id: `logistics_${Date.now()}`,
-      septraOrderId: selectedOrder.septraOrderId,
+      rfqId: selectedOrder.rfqId,
       supplierId: selectedOrder.supplierId,
       pharmacyId: logisticsForm.pharmacyId,
       trackingNumber: logisticsForm.trackingNumber || undefined,
@@ -214,7 +227,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
       
       return Array.from(pharmacyIds).some(pharmacyId => {
         return !logistics.some(l => 
-          l.septraOrderId === so.septraOrderId && 
+          l.rfqId === so.rfqId && 
           l.supplierId === so.supplierId &&
           l.pharmacyId === pharmacyId
         );
@@ -229,7 +242,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
     
     const assignedPharmacyIds = new Set(
       logistics
-        .filter(l => l.septraOrderId === supplierOrder.septraOrderId && l.supplierId === supplierOrder.supplierId)
+        .filter(l => l.rfqId === supplierOrder.rfqId && l.supplierId === supplierOrder.supplierId)
         .map(l => l.pharmacyId)
         .filter(Boolean)
     );
@@ -274,7 +287,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                   <option value="">Select supplier order</option>
                   {unassignedOrders.map((order) => (
                     <option key={order.id} value={order.id}>
-                      {getSupplierName(order.supplierId)} - {getSeptraOrderTitle(order.septraOrderId)}
+                      {getSupplierName(order.supplierId)} - {getOrderTitle(order.rfqId)}
                     </option>
                   ))}
                 </select>
@@ -480,7 +493,16 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                       <div className="w-20">
                         <Progress value={getStatusProgress(entry.status)} className="h-2" />
                         <div className="text-xs text-gray-500 mt-1">
-                          {getStatusProgress(entry.status)}%
+                          {getOrderTitle(entry.rfqId)}
+                        </div>
+                        {(() => {
+                          const rfq = getRFQ(entry.rfqId);
+                          return rfq && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              RFQ: {rfq.title}
+                            </div>
+                          );
+                        })()}
                         </div>
                       </div>
                     </TableCell>

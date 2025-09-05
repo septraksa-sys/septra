@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { User, Escrow, PharmacyOrder, SeptraOrder, Pharmacy } from '@/types';
+import { User, Escrow, PharmacyOrder, SeptraOrder, Pharmacy, RFQ } from '@/types';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +22,7 @@ export function AdminEscrow({ user }: AdminEscrowProps) {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [pharmacyOrders, setPharmacyOrders] = useState<PharmacyOrder[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
+  const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [selectedEscrow, setSelectedEscrow] = useState<Escrow | null>(null);
   const [releaseReason, setReleaseReason] = useState('');
@@ -35,6 +36,7 @@ export function AdminEscrow({ user }: AdminEscrowProps) {
     setEscrows(storage.getEscrows());
     setPharmacyOrders(storage.getPharmacyOrders());
     setSeptraOrders(storage.getSeptraOrders());
+    setRFQs(storage.getRFQs());
     setPharmacies(storage.getPharmacies());
   };
 
@@ -46,13 +48,13 @@ export function AdminEscrow({ user }: AdminEscrowProps) {
     const newEscrows: Escrow[] = [];
     confirmedOrders.forEach(order => {
       const hasEscrow = existingEscrows.some(e => 
-        e.septraOrderId === order.septraOrderId && e.pharmacyId === order.pharmacyId
+        e.rfqId === order.rfqId && e.pharmacyId === order.pharmacyId
       );
       
       if (!hasEscrow) {
         const newEscrow: Escrow = {
           id: `escrow_${Date.now()}_${order.pharmacyId}`,
-          septraOrderId: order.septraOrderId,
+          rfqId: order.rfqId,
           pharmacyId: order.pharmacyId,
           amount: order.totalValue,
           status: Math.random() > 0.5 ? 'funded' : 'not_funded', // Mock some as funded
@@ -73,9 +75,20 @@ export function AdminEscrow({ user }: AdminEscrowProps) {
     return pharmacy?.name || pharmacyId;
   };
 
-  const getSeptraOrderTitle = (septraOrderId: string) => {
-    const order = septraOrders.find(o => o.id === septraOrderId);
-    return order?.title || `Order ${septraOrderId.slice(-8)}`;
+  const getRFQ = (rfqId: string): RFQ | undefined => {
+    return rfqs.find(r => r.id === rfqId);
+  };
+
+  const getSeptraOrderFromRFQ = (rfqId: string): SeptraOrder | undefined => {
+    const rfq = getRFQ(rfqId);
+    if (!rfq) return undefined;
+    return septraOrders.find(o => o.id === rfq.septraOrderId);
+  };
+
+  const getOrderTitle = (rfqId: string): string => {
+    const rfq = getRFQ(rfqId);
+    const septraOrder = getSeptraOrderFromRFQ(rfqId);
+    return rfq?.title || septraOrder?.title || `Order ${rfqId.slice(-8)}`;
   };
 
   const getStatusColor = (status: Escrow['status']) => {
