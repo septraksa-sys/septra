@@ -147,3 +147,5 @@ export const deepClone = <T>(obj: T): T => {
   }
   return cloned;
 };
+
+export { BaseTransformer }
