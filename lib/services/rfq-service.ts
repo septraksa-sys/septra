@@ -1,7 +1,20 @@
 import { supabase } from '@/lib/supabase-client';
-import { RFQ, RFQLine, Bid, AwardedBid, PharmacyDemand, SeptraOrder } from '@/types';
+import { RFQ, RFQLine, Bid, AwardedBid, PharmacyDemand, SeptraOrder } from '@/types/frontend';
+import { 
+  DatabaseRFQ, 
+  DatabaseRFQLine, 
+  DatabaseRFQWithRelations,
+  DatabaseBid,
+  DatabaseAwardedBid 
+} from '@/types/database';
+import { TransformerFactory } from '@/lib/transformers/rfq-transformer';
 
 export class RFQService {
+  private static rfqTransformer = TransformerFactory.getRFQTransformer();
+  private static rfqLineTransformer = TransformerFactory.getRFQLineTransformer();
+  private static bidTransformer = TransformerFactory.getBidTransformer();
+  private static awardedBidTransformer = TransformerFactory.getAwardedBidTransformer();
+
   // Create RFQ from SeptraOrder demands
   static async createRFQFromSeptraOrder(
     septraOrderId: string,
@@ -23,37 +36,30 @@ export class RFQService {
       if (demandsError) throw demandsError;
 
       // Group demands by SKU
-      const skuGroups: { [skuId: string]: PharmacyDemand[] } = {};
+      const skuGroups: { [skuId: string]: any[] } = {};
       demands?.forEach(demand => {
         if (!skuGroups[demand.sku_id]) {
           skuGroups[demand.sku_id] = [];
         }
-        skuGroups[demand.sku_id].push({
-          id: demand.id,
-          pharmacyId: demand.pharmacy_id,
-          skuId: demand.sku_id,
-          quantity: demand.quantity,
-          maxUnitPrice: demand.max_unit_price || undefined,
-          notes: demand.notes || undefined,
-          status: demand.status as 'draft' | 'submitted',
-          createdAt: new Date(demand.created_at),
-          updatedAt: new Date(demand.updated_at)
-        });
+        skuGroups[demand.sku_id].push(demand);
       });
 
-      // Create RFQ
-      const { data: rfqData, error: rfqError } = await supabase
+      // Create RFQ in database
+      const databaseRFQ: Omit<DatabaseRFQ, 'id' | 'created_at' | 'updated_at'> = {
+        septra_order_id: septraOrderId,
+        title: rfqData.title,
+        description: rfqData.description || null,
+        published_at: new Date().toISOString(),
+        bidding_deadline: rfqData.biddingDeadline.toISOString(),
+        delivery_requirement: rfqData.deliveryRequirement?.toISOString() || null,
+        terms: rfqData.terms || null,
+        status: 'open',
+        estimated_value: null
+      };
+
+      const { data: createdRFQ, error: rfqError } = await supabase
         .from('rfqs')
-        .insert({
-          septra_order_id: septraOrderId,
-          title: rfqData.title,
-          description: rfqData.description,
-          published_at: new Date().toISOString(),
-          bidding_deadline: rfqData.biddingDeadline.toISOString(),
-          delivery_requirement: rfqData.deliveryRequirement?.toISOString(),
-          terms: rfqData.terms,
-          status: 'open'
-        })
+        .insert(databaseRFQ)
         .select()
         .single();
 
@@ -61,11 +67,11 @@ export class RFQService {
 
       // Create RFQ lines
       const rfqLines = Object.entries(skuGroups).map(([skuId, demands]) => ({
-        rfq_id: rfqData.id,
+        rfq_id: createdRFQ.id,
         sku_id: skuId,
-        total_quantity: demands.reduce((sum, d) => sum + d.quantity, 0),
-        demand_breakdown: demands.map(d => ({
-          pharmacyId: d.pharmacyId,
+        total_quantity: demands.reduce((sum: number, d: any) => sum + d.quantity, 0),
+        demand_breakdown: demands.map((d: any) => ({
+          pharmacyId: d.pharmacy_id,
           quantity: d.quantity
         }))
       }));
@@ -83,47 +89,28 @@ export class RFQService {
         .update({ status: 'rfq_created' })
         .eq('id', septraOrderId);
 
-      const rfq: RFQ = {
-        id: rfqData.id,
-        septraOrderId: rfqData.septra_order_id,
-        title: rfqData.title,
-        description: rfqData.description || undefined,
-        publishedAt: new Date(rfqData.published_at),
-        biddingDeadline: new Date(rfqData.bidding_deadline),
-        deliveryRequirement: rfqData.delivery_requirement ? new Date(rfqData.delivery_requirement) : undefined,
-        terms: rfqData.terms || undefined,
-        status: rfqData.status as 'open' | 'closed' | 'awarded',
-        estimatedValue: rfqData.estimated_value || undefined,
-        lines: [],
-        createdAt: new Date(rfqData.created_at),
-        updatedAt: new Date(rfqData.updated_at)
-      };
+      // Transform to frontend types
+      const frontendRFQ = this.rfqTransformer.toFrontend(createdRFQ);
+      const frontendLines = linesData.map(line => this.rfqLineTransformer.toFrontend(line));
 
-      const lines: RFQLine[] = linesData.map(line => ({
-        id: line.id,
-        rfqId: line.rfq_id,
-        skuId: line.sku_id,
-        totalQuantity: line.total_quantity,
-        demandBreakdown: line.demand_breakdown,
-        createdAt: new Date(line.created_at)
-      }));
-
-      return { rfq, lines };
+      return { rfq: frontendRFQ, lines: frontendLines };
     } catch (error) {
       console.error('Error creating RFQ:', error);
       return null;
     }
   }
 
-  // Get RFQs with their lines
+  // Get RFQs with their lines (using transformers)
   static async getRFQsWithLines(): Promise<RFQ[]> {
     try {
       const { data: rfqs, error: rfqsError } = await supabase
         .from('rfqs')
         .select(`
           *,
+          septra_orders (*),
           rfq_lines (
             *,
+            skus (*),
             awarded_bids (
               *,
               bids (*)
@@ -134,56 +121,14 @@ export class RFQService {
 
       if (rfqsError) throw rfqsError;
 
-      return rfqs.map(rfq => ({
-        id: rfq.id,
-        septraOrderId: rfq.septra_order_id,
-        title: rfq.title,
-        description: rfq.description || undefined,
-        publishedAt: new Date(rfq.published_at),
-        biddingDeadline: new Date(rfq.bidding_deadline),
-        deliveryRequirement: rfq.delivery_requirement ? new Date(rfq.delivery_requirement) : undefined,
-        terms: rfq.terms || undefined,
-        status: rfq.status as 'open' | 'closed' | 'awarded',
-        estimatedValue: rfq.estimated_value || undefined,
-        lines: rfq.rfq_lines.map((line: any) => ({
-          id: line.id,
-          rfqId: line.rfq_id,
-          skuId: line.sku_id,
-          totalQuantity: line.total_quantity,
-          demandBreakdown: line.demand_breakdown,
-          awardedBid: line.awarded_bids[0] ? {
-            id: line.awarded_bids[0].id,
-            bidId: line.awarded_bids[0].bid_id,
-            rfqLineId: line.awarded_bids[0].rfq_line_id,
-            awardedPrice: line.awarded_bids[0].awarded_price,
-            awardedQuantity: line.awarded_bids[0].awarded_quantity,
-            awardedAt: new Date(line.awarded_bids[0].awarded_at),
-            bid: line.awarded_bids[0].bids ? {
-              id: line.awarded_bids[0].bids.id,
-              rfqId: line.awarded_bids[0].bids.rfq_id,
-              supplierId: line.awarded_bids[0].bids.supplier_id,
-              skuId: line.awarded_bids[0].bids.sku_id,
-              unitPrice: line.awarded_bids[0].bids.unit_price,
-              quantity: line.awarded_bids[0].bids.quantity,
-              minQuantity: line.awarded_bids[0].bids.min_quantity || undefined,
-              leadTimeDays: line.awarded_bids[0].bids.lead_time_days,
-              notes: line.awarded_bids[0].bids.notes || undefined,
-              status: line.awarded_bids[0].bids.status as 'submitted' | 'awarded' | 'rejected',
-              submittedAt: new Date(line.awarded_bids[0].bids.submitted_at)
-            } : undefined
-          } : undefined,
-          createdAt: new Date(line.created_at)
-        })),
-        createdAt: new Date(rfq.created_at),
-        updatedAt: new Date(rfq.updated_at)
-      }));
+      return rfqs.map(rfq => this.rfqTransformer.toFrontendWithRelations(rfq as DatabaseRFQWithRelations));
     } catch (error) {
       console.error('Error fetching RFQs:', error);
       return [];
     }
   }
 
-  // Award bid to RFQ line
+  // Award bid to RFQ line (using transformers)
   static async awardBid(bidId: string, rfqLineId: string): Promise<boolean> {
     try {
       // Get the bid details
@@ -196,14 +141,16 @@ export class RFQService {
       if (bidError) throw bidError;
 
       // Create awarded bid record
+      const awardedBidData: Omit<DatabaseAwardedBid, 'id' | 'awarded_at'> = {
+        bid_id: bidId,
+        rfq_line_id: rfqLineId,
+        awarded_price: bid.unit_price,
+        awarded_quantity: bid.quantity
+      };
+
       const { error: awardError } = await supabase
         .from('awarded_bids')
-        .insert({
-          bid_id: bidId,
-          rfq_line_id: rfqLineId,
-          awarded_price: bid.unit_price,
-          awarded_quantity: bid.quantity
-        });
+        .insert(awardedBidData);
 
       if (awardError) throw awardError;
 
@@ -241,6 +188,108 @@ export class RFQService {
     } catch (error) {
       console.error('Error closing RFQ bidding:', error);
       return false;
+    }
+  }
+
+  // Get open RFQs for suppliers (with transformations)
+  static async getOpenRFQsForSupplier(supplierId: string): Promise<RFQ[]> {
+    try {
+      // Get supplier categories
+      const { data: supplier, error: supplierError } = await supabase
+        .from('users')
+        .select('categories')
+        .eq('id', supplierId)
+        .single();
+
+      if (supplierError) throw supplierError;
+
+      const categories = supplier.categories || [];
+
+      // Get open RFQs with lines that match supplier categories
+      const { data: rfqs, error: rfqsError } = await supabase
+        .from('rfqs')
+        .select(`
+          *,
+          septra_orders (*),
+          rfq_lines (
+            *,
+            skus (*)
+          )
+        `)
+        .eq('status', 'open')
+        .gt('bidding_deadline', new Date().toISOString());
+
+      if (rfqsError) throw rfqsError;
+
+      // Filter RFQs that have SKUs matching supplier categories
+      const relevantRFQs = rfqs.filter(rfq => 
+        rfq.rfq_lines.some((line: any) => 
+          categories.includes('ALL') || 
+          categories.includes(line.skus.category)
+        )
+      );
+
+      return relevantRFQs.map(rfq => this.rfqTransformer.toFrontendWithRelations(rfq as DatabaseRFQWithRelations));
+    } catch (error) {
+      console.error('Error fetching open RFQs for supplier:', error);
+      return [];
+    }
+  }
+
+  // Submit bid on RFQ (using transformers)
+  static async submitBid(bidData: {
+    rfqId: string;
+    supplierId: string;
+    skuId: string;
+    unitPrice: number;
+    quantity: number;
+    minQuantity?: number;
+    leadTimeDays: number;
+    notes?: string;
+  }): Promise<Bid | null> {
+    try {
+      const databaseBidData: Omit<DatabaseBid, 'id' | 'submitted_at'> = {
+        rfq_id: bidData.rfqId,
+        supplier_id: bidData.supplierId,
+        sku_id: bidData.skuId,
+        unit_price: bidData.unitPrice,
+        quantity: bidData.quantity,
+        min_quantity: bidData.minQuantity || null,
+        lead_time_days: bidData.leadTimeDays,
+        notes: bidData.notes || null,
+        status: 'submitted'
+      };
+
+      const { data, error } = await supabase
+        .from('bids')
+        .insert(databaseBidData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return this.bidTransformer.toFrontend(data);
+    } catch (error) {
+      console.error('Error submitting bid:', error);
+      return null;
+    }
+  }
+
+  // Get bids for supplier (with transformations)
+  static async getBidsForSupplier(supplierId: string): Promise<Bid[]> {
+    try {
+      const { data, error } = await supabase
+        .from('bids')
+        .select('*')
+        .eq('supplier_id', supplierId)
+        .order('submitted_at', { ascending: false });
+
+      if (error) throw error;
+
+      return data.map(bid => this.bidTransformer.toFrontend(bid));
+    } catch (error) {
+      console.error('Error fetching supplier bids:', error);
+      return [];
     }
   }
 
@@ -403,147 +452,105 @@ export class RFQService {
     }
   }
 
-  // Get open RFQs for suppliers
-  static async getOpenRFQsForSupplier(supplierId: string): Promise<RFQ[]> {
+  // Get all RFQs (admin view)
+  static async getAllRFQs(): Promise<RFQ[]> {
     try {
-      // Get supplier categories
-      const { data: supplier, error: supplierError } = await supabase
-        .from('users')
-        .select('categories')
-        .eq('id', supplierId)
-        .single();
-
-      if (supplierError) throw supplierError;
-
-      const categories = supplier.categories || [];
-
-      // Get open RFQs with lines that match supplier categories
-      const { data: rfqs, error: rfqsError } = await supabase
+      const { data: rfqs, error } = await supabase
         .from('rfqs')
         .select(`
           *,
+          septra_orders (*),
           rfq_lines (
             *,
-            skus (category)
+            skus (*),
+            awarded_bids (
+              *,
+              bids (*)
+            )
           )
         `)
-        .eq('status', 'open')
-        .gt('bidding_deadline', new Date().toISOString());
+        .order('created_at', { ascending: false });
 
-      if (rfqsError) throw rfqsError;
+      if (error) throw error;
 
-      // Filter RFQs that have SKUs matching supplier categories
-      const relevantRFQs = rfqs.filter(rfq => 
-        rfq.rfq_lines.some((line: any) => 
-          categories.includes('ALL') || 
-          categories.includes(line.skus.category)
-        )
-      );
-
-      return relevantRFQs.map(rfq => ({
-        id: rfq.id,
-        septraOrderId: rfq.septra_order_id,
-        title: rfq.title,
-        description: rfq.description || undefined,
-        publishedAt: new Date(rfq.published_at),
-        biddingDeadline: new Date(rfq.bidding_deadline),
-        deliveryRequirement: rfq.delivery_requirement ? new Date(rfq.delivery_requirement) : undefined,
-        terms: rfq.terms || undefined,
-        status: rfq.status as 'open' | 'closed' | 'awarded',
-        estimatedValue: rfq.estimated_value || undefined,
-        lines: rfq.rfq_lines.map((line: any) => ({
-          id: line.id,
-          rfqId: line.rfq_id,
-          skuId: line.sku_id,
-          totalQuantity: line.total_quantity,
-          demandBreakdown: line.demand_breakdown,
-          createdAt: new Date(line.created_at)
-        })),
-        createdAt: new Date(rfq.created_at),
-        updatedAt: new Date(rfq.updated_at)
-      }));
+      return rfqs.map(rfq => this.rfqTransformer.toFrontendWithRelations(rfq as DatabaseRFQWithRelations));
     } catch (error) {
-      console.error('Error fetching open RFQs for supplier:', error);
+      console.error('Error fetching all RFQs:', error);
       return [];
     }
   }
 
-  // Submit bid on RFQ
-  static async submitBid(bidData: {
-    rfqId: string;
-    supplierId: string;
-    skuId: string;
-    unitPrice: number;
-    quantity: number;
-    minQuantity?: number;
-    leadTimeDays: number;
-    notes?: string;
-  }): Promise<Bid | null> {
+  // Update RFQ
+  static async updateRFQ(rfqId: string, updates: Partial<RFQ>): Promise<boolean> {
     try {
-      const { data, error } = await supabase
-        .from('bids')
-        .insert({
-          rfq_id: bidData.rfqId,
-          supplier_id: bidData.supplierId,
-          sku_id: bidData.skuId,
-          unit_price: bidData.unitPrice,
-          quantity: bidData.quantity,
-          min_quantity: bidData.minQuantity,
-          lead_time_days: bidData.leadTimeDays,
-          notes: bidData.notes,
-          status: 'submitted'
-        })
-        .select()
+      // Transform frontend updates to database format
+      const databaseUpdates: Partial<DatabaseRFQ> = {};
+      
+      if (updates.title) databaseUpdates.title = updates.title;
+      if (updates.description !== undefined) databaseUpdates.description = updates.description || null;
+      if (updates.biddingDeadline) databaseUpdates.bidding_deadline = updates.biddingDeadline.toISOString();
+      if (updates.deliveryRequirement !== undefined) {
+        databaseUpdates.delivery_requirement = updates.deliveryRequirement?.toISOString() || null;
+      }
+      if (updates.terms !== undefined) databaseUpdates.terms = updates.terms || null;
+      if (updates.status) databaseUpdates.status = updates.status;
+      if (updates.estimatedValue !== undefined) databaseUpdates.estimated_value = updates.estimatedValue || null;
+
+      const { error } = await supabase
+        .from('rfqs')
+        .update(databaseUpdates)
+        .eq('id', rfqId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error updating RFQ:', error);
+      return false;
+    }
+  }
+
+  // Delete RFQ
+  static async deleteRFQ(rfqId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('rfqs')
+        .delete()
+        .eq('id', rfqId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error deleting RFQ:', error);
+      return false;
+    }
+  }
+
+  // Get RFQ by ID with full details
+  static async getRFQById(rfqId: string): Promise<RFQ | null> {
+    try {
+      const { data: rfq, error } = await supabase
+        .from('rfqs')
+        .select(`
+          *,
+          septra_orders (*),
+          rfq_lines (
+            *,
+            skus (*),
+            awarded_bids (
+              *,
+              bids (*)
+            )
+          )
+        `)
+        .eq('id', rfqId)
         .single();
 
       if (error) throw error;
 
-      return {
-        id: data.id,
-        rfqId: data.rfq_id,
-        supplierId: data.supplier_id,
-        skuId: data.sku_id,
-        unitPrice: data.unit_price,
-        quantity: data.quantity,
-        minQuantity: data.min_quantity || undefined,
-        leadTimeDays: data.lead_time_days,
-        notes: data.notes || undefined,
-        status: data.status as 'submitted' | 'awarded' | 'rejected',
-        submittedAt: new Date(data.submitted_at)
-      };
+      return this.rfqTransformer.toFrontendWithRelations(rfq as DatabaseRFQWithRelations);
     } catch (error) {
-      console.error('Error submitting bid:', error);
+      console.error('Error fetching RFQ by ID:', error);
       return null;
-    }
-  }
-
-  // Get bids for supplier
-  static async getBidsForSupplier(supplierId: string): Promise<Bid[]> {
-    try {
-      const { data, error } = await supabase
-        .from('bids')
-        .select('*')
-        .eq('supplier_id', supplierId)
-        .order('submitted_at', { ascending: false });
-
-      if (error) throw error;
-
-      return data.map(bid => ({
-        id: bid.id,
-        rfqId: bid.rfq_id,
-        supplierId: bid.supplier_id,
-        skuId: bid.sku_id,
-        unitPrice: bid.unit_price,
-        quantity: bid.quantity,
-        minQuantity: bid.min_quantity || undefined,
-        leadTimeDays: bid.lead_time_days,
-        notes: bid.notes || undefined,
-        status: bid.status as 'submitted' | 'awarded' | 'rejected',
-        submittedAt: new Date(bid.submitted_at)
-      }));
-    } catch (error) {
-      console.error('Error fetching supplier bids:', error);
-      return [];
     }
   }
 }

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { User, RFQ, SeptraOrder, RFQLine } from '@/types';
-import { storage } from '@/lib/storage';
+import { RFQService } from '@/lib/services/rfq-service';
+import { AdminService } from '@/lib/services/admin-service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { FileText, Send, Clock, CheckCircle } from 'lucide-react';
+import { FileText, Send, Clock, CheckCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminRFQsProps {
@@ -21,8 +22,10 @@ interface AdminRFQsProps {
 export function AdminRFQs({ user }: AdminRFQsProps) {
   const [rfqs, setRFQs] = useState<RFQ[]>([]);
   const [septraOrders, setSeptraOrders] = useState<SeptraOrder[]>([]);
-  const [rfqLines, setRFQLines] = useState<RFQLine[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<SeptraOrder | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [rfqForm, setRFQForm] = useState({
     title: '',
     description: '',
@@ -35,16 +38,22 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
     loadData();
   }, []);
 
-  const loadData = () => {
-    const rfqs = storage.getRFQs().map(rfq => ({
-      ...rfq,
-      publishedAt: new Date(rfq.publishedAt),
-      biddingDeadline: new Date(rfq.biddingDeadline),
-      deliveryRequirement: rfq.deliveryRequirement ? new Date(rfq.deliveryRequirement) : undefined
-    }));
-    setRFQs(rfqs);
-    setSeptraOrders(storage.getSeptraOrders());
-    setRFQLines(storage.getRFQLines());
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // Load RFQs using the service with transformers
+      const rfqsData = await RFQService.getAllRFQs();
+      setRFQs(rfqsData);
+
+      // Load Septra Orders using admin service
+      const ordersData = await AdminService.getSeptraOrders();
+      setSeptraOrders(ordersData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast.error('Failed to load RFQ data');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getOrdersEligibleForRFQ = () => {
@@ -57,101 +66,62 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
     return septraOrders.find(o => o.id === septraOrderId);
   };
 
-  const getRFQLines = (rfqId: string): RFQLine[] => {
-    return rfqLines.filter(line => line.rfqId === rfqId);
+  const getTotalQuantityForRFQ = (rfq: RFQ): number => {
+    return rfq.lines.reduce((total, line) => total + line.totalQuantity, 0);
   };
 
-  const getTotalQuantityForRFQ = (rfqId: string): number => {
-    const lines = getRFQLines(rfqId);
-    return lines.reduce((total, line) => total + line.totalQuantity, 0);
-  };
-
-  const publishRFQ = () => {
+  const publishRFQ = async () => {
     if (!selectedOrder || !rfqForm.title || !rfqForm.biddingDeadline) {
       toast.error('Please fill in required fields');
       return;
     }
 
-    // Create RFQ with proper schema compliance
-    const newRFQ: RFQ = {
-      id: `rfq_${Date.now()}`,
-      septraOrderId: selectedOrder.id,
-      title: rfqForm.title,
-      description: rfqForm.description,
-      publishedAt: new Date(),
-      biddingDeadline: new Date(rfqForm.biddingDeadline),
-      deliveryRequirement: rfqForm.deliveryRequirement ? new Date(rfqForm.deliveryRequirement) : undefined,
-      terms: rfqForm.terms,
-      status: 'open',
-      lines: [], // Will be populated separately
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+    setIsCreating(true);
+    try {
+      const result = await RFQService.createRFQFromSeptraOrder(selectedOrder.id, {
+        title: rfqForm.title,
+        description: rfqForm.description,
+        biddingDeadline: new Date(rfqForm.biddingDeadline),
+        deliveryRequirement: rfqForm.deliveryRequirement ? new Date(rfqForm.deliveryRequirement) : undefined,
+        terms: rfqForm.terms
+      });
 
-    // Save RFQ
-    const allRFQs = storage.getRFQs();
-    storage.setRFQs([...allRFQs, newRFQ]);
-
-    // Create RFQ Lines from SeptraOrder lines
-    const newRFQLines: RFQLine[] = selectedOrder.lines.map((line, index) => ({
-      id: `rfq_line_${Date.now()}_${index}`,
-      rfqId: newRFQ.id,
-      skuId: line.skuId,
-      totalQuantity: line.totalQuantity,
-      demandBreakdown: line.demandBreakdown,
-      createdAt: new Date()
-    }));
-
-    // Save RFQ Lines
-    const allRFQLines = storage.getRFQLines();
-    storage.setRFQLines([...allRFQLines, ...newRFQLines]);
-
-    // Update the RFQ with embedded lines for easier access
-    newRFQ.lines = newRFQLines;
-    const updatedRFQs = [...allRFQs, newRFQ];
-    storage.setRFQs(updatedRFQs);
-
-    // Update Septra Order status
-    const updatedOrders = septraOrders.map(o => 
-      o.id === selectedOrder.id 
-        ? { ...o, status: 'rfq_open' as const, publishedAt: new Date(), updatedAt: new Date() }
-        : o
-    );
-    storage.setSeptraOrders(updatedOrders);
-
-    loadData();
-    setSelectedOrder(null);
-    setRFQForm({
-      title: '',
-      description: '',
-      biddingDeadline: '',
-      deliveryRequirement: '',
-      terms: ''
-    });
-
-    toast.success('RFQ published successfully');
+      if (result) {
+        await loadData(); // Reload data to show the new RFQ
+        setSelectedOrder(null);
+        setIsDialogOpen(false);
+        setRFQForm({
+          title: '',
+          description: '',
+          biddingDeadline: '',
+          deliveryRequirement: '',
+          terms: ''
+        });
+        toast.success('RFQ published successfully');
+      } else {
+        toast.error('Failed to publish RFQ');
+      }
+    } catch (error) {
+      console.error('Error publishing RFQ:', error);
+      toast.error('Failed to publish RFQ');
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const closeBidding = (rfqId: string) => {
-    const allRFQs = storage.getRFQs();
-    const updatedRFQs = allRFQs.map(r => 
-      r.id === rfqId ? { ...r, status: 'closed' as const } : r
-    );
-    storage.setRFQs(updatedRFQs);
-
-    // Update corresponding Septra Order
-    const rfq = allRFQs.find(r => r.id === rfqId);
-    if (rfq) {
-      const updatedOrders = septraOrders.map(o => 
-        o.id === rfq.septraOrderId 
-          ? { ...o, status: 'bidding_closed' as const, updatedAt: new Date() }
-          : o
-      );
-      storage.setSeptraOrders(updatedOrders);
+  const closeBidding = async (rfqId: string) => {
+    try {
+      const success = await RFQService.closeRFQBidding(rfqId);
+      if (success) {
+        await loadData();
+        toast.success('Bidding closed successfully');
+      } else {
+        toast.error('Failed to close bidding');
+      }
+    } catch (error) {
+      console.error('Error closing bidding:', error);
+      toast.error('Failed to close bidding');
     }
-
-    loadData();
-    toast.success('Bidding closed successfully');
   };
 
   const getStatusColor = (status: RFQ['status']) => {
@@ -202,6 +172,17 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
 
   const eligibleOrders = getOrdersEligibleForRFQ();
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <span className="ml-2 text-gray-600">Loading RFQs...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -211,7 +192,7 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
             Publish and manage Request for Quotations from Septra Orders
           </p>
         </div>
-        <Dialog>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button disabled={eligibleOrders.length === 0}>
               <Send className="h-4 w-4 mr-2" />
@@ -243,7 +224,7 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
                   <option value="">Select an order</option>
                   {eligibleOrders.map((order) => (
                     <option key={order.id} value={order.id}>
-                      {order.title} ({order.lines.length} lines)
+                      {order.title} ({order.lines?.length || 0} lines)
                     </option>
                   ))}
                 </select>
@@ -303,19 +284,26 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
                 <div className="border rounded-lg p-4 bg-gray-50">
                   <h4 className="font-medium mb-2">Order Summary</h4>
                   <div className="text-sm space-y-1">
-                    <p><span className="font-medium">Lines:</span> {selectedOrder.lines.length}</p>
-                    <p><span className="font-medium">Total Quantity:</span> {selectedOrder.lines.reduce((sum, line) => sum + line.totalQuantity, 0)} units</p>
-                    <p><span className="font-medium">Pharmacies:</span> {new Set(selectedOrder.lines.flatMap(line => line.demandBreakdown.map(d => d.pharmacyId))).size}</p>
+                    <p><span className="font-medium">Lines:</span> {selectedOrder.lines?.length || 0}</p>
+                    <p><span className="font-medium">Total Quantity:</span> {selectedOrder.lines?.reduce((sum, line) => sum + line.totalQuantity, 0) || 0} units</p>
+                    <p><span className="font-medium">Pharmacies:</span> {selectedOrder.lines ? new Set(selectedOrder.lines.flatMap(line => line.demandBreakdown.map(d => d.pharmacyId))).size : 0}</p>
                   </div>
                 </div>
               )}
 
               <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isCreating}>
                   Cancel
                 </Button>
-                <Button onClick={publishRFQ}>
-                  Publish RFQ
+                <Button onClick={publishRFQ} disabled={isCreating}>
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    'Publish RFQ'
+                  )}
                 </Button>
               </div>
             </div>
@@ -426,8 +414,8 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
                             {septraOrder?.title || 'Unknown Order'}
                           </div>
                           <div className="text-sm text-gray-500"> 
-                            {getRFQLines(rfq.id).length} lines • 
-                            {getTotalQuantityForRFQ(rfq.id)} total units
+                            {rfq.lines.length} lines • 
+                            {getTotalQuantityForRFQ(rfq)} total units
                           </div>
                         </TableCell>
                         <TableCell>
