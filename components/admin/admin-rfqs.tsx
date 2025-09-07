@@ -82,7 +82,6 @@ export function AdminRFQs({ user }: AdminRFQsProps) {
       biddingDeadline: new Date(rfqForm.biddingDeadline),
       deliveryRequirement: rfqForm.deliveryRequirement ? new Date(rfqForm.deliveryRequirement) : undefined,
       terms: rfqForm.terms,
-      status: 'open'
       status: 'open',
       lines: [], // Will be populated separately
       createdAt: new Date(),

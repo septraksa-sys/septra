@@ -471,7 +471,6 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                     <TableCell>
                       <div className="font-medium">
                         {entry.pharmacyId ? getPharmacyName(entry.pharmacyId) : 'Multiple'}
-                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
