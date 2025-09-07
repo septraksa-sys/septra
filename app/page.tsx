@@ -1,13 +1,70 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AuthService } from '@/lib/auth';
+import { AuthService } from '@/lib/services/auth-service';
+import { AuthProvider, useAuth } from '@/components/auth/auth-provider';
 import { seedDatabase } from '@/lib/seed-data';
-import { LoginForm } from '@/components/auth/login-form';
+import { EnhancedLoginForm } from '@/components/auth/enhanced-login-form';
 import { PharmacyDashboard } from '@/components/dashboard/pharmacy-dashboard';
 import { SupplierDashboard } from '@/components/dashboard/supplier-dashboard';
 import { AdminDashboard } from '@/components/dashboard/admin-dashboard';
 import { User } from '@/types';
+
+function AppContent() {
+  const { user, isLoading, login, logout } = useAuth();
+
+  useEffect(() => {
+    // Initialize local storage with seed data for fallback
+    seedDatabase();
+  }, []);
+
+  const handleLogin = (user: User) => {
+    // Token is handled by the auth service
+    login(user, ''); // Token is managed internally
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading Septra Platform...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <EnhancedLoginForm onLogin={handleLogin} />;
+  }
+
+  const renderDashboard = () => {
+    switch (user.role) {
+      case 'pharmacy':
+        return <PharmacyDashboard user={user} onLogout={logout} />;
+      case 'supplier':
+        return <SupplierDashboard user={user} onLogout={logout} />;
+      case 'admin':
+        return <AdminDashboard user={user} onLogout={logout} />;
+      default:
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-red-50">
+            <div className="text-center">
+              <p className="text-red-600 text-lg">Invalid user role</p>
+              <button
+                onClick={logout}
+                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        );
+    }
+  };
+
+  return renderDashboard();
+}
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -44,11 +101,6 @@ export default function Home() {
     setCurrentUser(user);
   };
 
-  const handleLogout = async () => {
-    await AuthService.logout();
-    setCurrentUser(null);
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -61,24 +113,28 @@ export default function Home() {
   }
 
   if (!currentUser) {
-    return <LoginForm onLogin={handleLogin} />;
+    return (
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    );
   }
 
   const renderDashboard = () => {
     switch (currentUser.role) {
       case 'pharmacy':
-        return <PharmacyDashboard user={currentUser} onLogout={handleLogout} />;
+        return <PharmacyDashboard user={currentUser} onLogout={async () => setCurrentUser(null)} />;
       case 'supplier':
-        return <SupplierDashboard user={currentUser} onLogout={handleLogout} />;
+        return <SupplierDashboard user={currentUser} onLogout={async () => setCurrentUser(null)} />;
       case 'admin':
-        return <AdminDashboard user={currentUser} onLogout={handleLogout} />;
+        return <AdminDashboard user={currentUser} onLogout={async () => setCurrentUser(null)} />;
       default:
         return (
           <div className="min-h-screen flex items-center justify-center bg-red-50">
             <div className="text-center">
               <p className="text-red-600 text-lg">Invalid user role</p>
               <button
-                onClick={handleLogout}
+                onClick={() => setCurrentUser(null)}
                 className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
               >
                 Logout
@@ -89,5 +145,9 @@ export default function Home() {
     }
   };
 
-  return renderDashboard();
+  return (
+    <AuthProvider>
+      {renderDashboard()}
+    </AuthProvider>
+  );
 }
