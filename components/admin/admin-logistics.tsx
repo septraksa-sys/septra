@@ -126,6 +126,11 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
     return rfq?.title || septraOrder?.title || `Order ${rfqId.slice(-8)}`;
   };
 
+  const getSeptraOrderTitle = (septraOrderId: string): string => {
+    const septraOrder = septraOrders.find(o => o.id === septraOrderId);
+    return septraOrder?.title || `Order ${septraOrderId.slice(-8)}`;
+  };
+
   const getStatusColor = (status: LogisticsEntry['status']) => {
     switch (status) {
       case 'delivered':
@@ -471,6 +476,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                     <TableCell>
                       <div className="font-medium">
                         {entry.pharmacyId ? getPharmacyName(entry.pharmacyId) : 'Multiple'}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
@@ -502,7 +508,7 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                             </div>
                           );
                         })()}
-                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
