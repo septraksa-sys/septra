@@ -13,7 +13,7 @@ export type TransformationResult<T> = {
   errors?: string[];
 };
 
-export abstract class BaseTransformer<FrontendType, DatabaseType> {
+abstract class BaseTransformer<FrontendType, DatabaseType> {
   // Abstract methods that must be implemented by each transformer
   abstract toDatabase(frontend: FrontendType): DatabaseType;
   abstract toFrontend(database: DatabaseType): FrontendType;
