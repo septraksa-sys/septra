@@ -10,6 +10,10 @@ export {
   TransformerFactory 
 } from './rfq-transformer';
 export { 
+  SKUTransformer,
+  SKUTransformerFactory 
+} from './sku-transformer';
+export { 
   EntityTransformerTemplate, 
   createEntityTransformer 
 } from './entity-transformer-template';
@@ -19,7 +23,8 @@ export const Transformers = {
   RFQ: TransformerFactory.getRFQTransformer(),
   RFQLine: TransformerFactory.getRFQLineTransformer(),
   Bid: TransformerFactory.getBidTransformer(),
-  AwardedBid: TransformerFactory.getAwardedBidTransformer()
+  AwardedBid: TransformerFactory.getAwardedBidTransformer(),
+  SKU: SKUTransformerFactory.getInstance()
 };
 
 // Utility functions for common transformation patterns

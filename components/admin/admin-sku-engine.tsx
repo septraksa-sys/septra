@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, SKU } from '@/types';
-import { storage } from '@/lib/storage';
+import { User, SKU } from '@/types/frontend';
+import { SKUService } from '@/lib/services/sku-service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Edit, Trash2, Save, Package, Settings, Database } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, Package, Settings, Database, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminSKUEngineProps {
@@ -22,6 +22,10 @@ interface AdminSKUEngineProps {
 
 export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
   const [skus, setSKUs] = useState<SKU[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSKU, setEditingSKU] = useState<SKU | null>(null);
   const [formData, setFormData] = useState({
@@ -41,12 +45,38 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
   });
 
   useEffect(() => {
-    loadSKUs();
+    loadData();
   }, []);
 
-  const loadSKUs = () => {
-    const allSKUs = storage.getSKUs();
-    setSKUs(allSKUs);
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [skusData, categoriesData] = await Promise.all([
+        SKUService.getAllSKUs(),
+        SKUService.getCategories()
+      ]);
+      setSKUs(skusData);
+      setCategories(categoriesData);
+    } catch (error) {
+      console.error('Error loading SKU data:', error);
+      toast.error('Failed to load SKU data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      loadData();
+      return;
+    }
+
+    try {
+      const results = await SKUService.searchSKUs(searchQuery);
+      setSKUs(results);
+    } catch (error) {
+      toast.error('Search failed');
+    }
   };
 
   const resetForm = () => {
@@ -68,7 +98,7 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
     setEditingSKU(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.category || !formData.strength) {
@@ -76,95 +106,87 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
       return;
     }
 
-    // Generate SKU code if not provided
-    const skuCode = formData.code || generateSKUCode(formData.name, formData.strength);
-
-    // Check for duplicate codes
-    const existingSKU = skus.find(s => s.code === skuCode && s.id !== editingSKU?.id);
-    if (existingSKU) {
-      toast.error('SKU code already exists. Please use a different code.');
-      return;
-    }
-
-    // Parse custom metadata
-    let customMetadata = {};
-    if (formData.customMetadata) {
-      try {
-        customMetadata = JSON.parse(formData.customMetadata);
-      } catch (error) {
-        toast.error('Invalid JSON format in custom metadata');
-        return;
+    setIsCreating(true);
+    try {
+      // Parse custom metadata
+      let customMetadata = {};
+      if (formData.customMetadata) {
+        try {
+          customMetadata = JSON.parse(formData.customMetadata);
+        } catch (error) {
+          toast.error('Invalid JSON format in custom metadata');
+          return;
+        }
       }
+
+      if (editingSKU) {
+        // Update existing SKU
+        const updates: Partial<SKU> = {
+          code: formData.code,
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          strength: formData.strength,
+          unit: formData.unit,
+          metadata: {
+            dosageForm: formData.dosageForm,
+            packSize: formData.packSize,
+            manufacturer: formData.manufacturer,
+            requiresExpiry: formData.requiresExpiry,
+            storageConditions: formData.storageConditions,
+            therapeuticClass: formData.therapeuticClass,
+            ...customMetadata
+          }
+        };
+
+        const success = await SKUService.updateSKU(editingSKU.id, updates);
+        if (success) {
+          toast.success('SKU updated successfully');
+          broadcastSKUUpdate('updated', formData.code || editingSKU.code);
+        } else {
+          toast.error('Failed to update SKU');
+          return;
+        }
+      } else {
+        // Create new SKU
+        const skuData = {
+          code: formData.code,
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          strength: formData.strength,
+          unit: formData.unit,
+          metadata: {
+            dosageForm: formData.dosageForm,
+            packSize: formData.packSize,
+            manufacturer: formData.manufacturer,
+            requiresExpiry: formData.requiresExpiry,
+            storageConditions: formData.storageConditions,
+            therapeuticClass: formData.therapeuticClass,
+            ...customMetadata
+          },
+          createdBy: user.id
+        };
+
+        const newSKU = await SKUService.createSKU(skuData);
+        if (newSKU) {
+          toast.success('SKU created successfully');
+          broadcastSKUUpdate('created', newSKU.code);
+        } else {
+          toast.error('Failed to create SKU');
+          return;
+        }
+      }
+
+      await loadData();
+      setIsDialogOpen(false);
+      resetForm();
+    } catch (error) {
+      console.error('Error submitting SKU:', error);
+      toast.error('An unexpected error occurred');
+    } finally {
+      setIsCreating(false);
     }
-
-    const now = new Date();
-    const allSKUs = storage.getSKUs();
-
-    if (editingSKU) {
-      // Update existing SKU
-      const updatedSKUs = allSKUs.map(s => 
-        s.id === editingSKU.id 
-          ? {
-              ...s,
-              code: skuCode,
-              name: formData.name,
-              description: formData.description,
-              category: formData.category,
-              strength: formData.strength,
-              unit: formData.unit,
-              metadata: {
-                dosageForm: formData.dosageForm,
-                packSize: formData.packSize,
-                manufacturer: formData.manufacturer,
-                requiresExpiry: formData.requiresExpiry,
-                storageConditions: formData.storageConditions,
-                therapeuticClass: formData.therapeuticClass,
-                ...customMetadata
-              },
-              updatedAt: now
-            }
-          : s
-      );
-      storage.setSKUs(updatedSKUs);
-      toast.success('SKU updated successfully');
-      
-      // Broadcast update event
-      broadcastSKUUpdate('updated', skuCode);
-    } else {
-      // Create new SKU
-      const newSKU: SKU = {
-        id: `sku_${Date.now()}`,
-        code: skuCode,
-        name: formData.name,
-        description: formData.description,
-        category: formData.category,
-        strength: formData.strength,
-        unit: formData.unit,
-        metadata: {
-          dosageForm: formData.dosageForm,
-          packSize: formData.packSize,
-          manufacturer: formData.manufacturer,
-          requiresExpiry: formData.requiresExpiry,
-          storageConditions: formData.storageConditions,
-          therapeuticClass: formData.therapeuticClass,
-          ...customMetadata
-        },
-        isActive: true,
-        createdAt: now,
-        updatedAt: now,
-        createdBy: user.id
-      };
-      
-      storage.setSKUs([...allSKUs, newSKU]);
-      toast.success('SKU created successfully');
-      
-      // Broadcast creation event
-      broadcastSKUUpdate('created', skuCode);
-    }
-
-    loadSKUs();
-    setIsDialogOpen(false);
-    resetForm();
   };
 
   const generateSKUCode = (name: string, strength: string) => {
@@ -211,68 +233,65 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (skuId: string) => {
+  const handleDelete = async (skuId: string) => {
     const sku = skus.find(s => s.id === skuId);
     if (!sku) return;
 
-    // Check if SKU is being used
-    const demands = storage.getPharmacyDemands();
-    const isInUse = demands.some(d => d.skuId === skuId);
-    
-    if (isInUse) {
-      toast.error('Cannot delete SKU - it is currently being used in demands or orders');
-      return;
-    }
-
-    const allSKUs = storage.getSKUs();
-    const updatedSKUs = allSKUs.filter(s => s.id !== skuId);
-    storage.setSKUs(updatedSKUs);
-    loadSKUs();
-    
-    // Broadcast deletion event
-    broadcastSKUUpdate('deleted', sku.code);
-    toast.success('SKU deleted successfully');
-  };
-
-  const toggleSKUStatus = (skuId: string) => {
-    const allSKUs = storage.getSKUs();
-    const updatedSKUs = allSKUs.map(s => 
-      s.id === skuId ? { ...s, isActive: !s.isActive, updatedAt: new Date() } : s
-    );
-    storage.setSKUs(updatedSKUs);
-    loadSKUs();
-    
-    const sku = allSKUs.find(s => s.id === skuId);
-    if (sku) {
-      broadcastSKUUpdate(sku.isActive ? 'deactivated' : 'activated', sku.code);
-      toast.success(`SKU ${sku.isActive ? 'deactivated' : 'activated'} successfully`);
+    try {
+      const success = await SKUService.deleteSKU(skuId);
+      if (success) {
+        await loadData();
+        broadcastSKUUpdate('deleted', sku.code);
+        toast.success('SKU deleted successfully');
+      } else {
+        toast.error('Failed to delete SKU - it may be in use');
+      }
+    } catch (error) {
+      toast.error('Cannot delete SKU - it is currently being used');
     }
   };
 
-  const getUniqueCategories = () => {
-    return [...new Set(skus.map(s => s.category))].filter(Boolean);
+  const toggleSKUStatus = async (skuId: string) => {
+    const sku = skus.find(s => s.id === skuId);
+    if (!sku) return;
+
+    try {
+      const success = await SKUService.toggleSKUStatus(skuId);
+      if (success) {
+        await loadData();
+        broadcastSKUUpdate(sku.isActive ? 'deactivated' : 'activated', sku.code);
+        toast.success(`SKU ${sku.isActive ? 'deactivated' : 'activated'} successfully`);
+      } else {
+        toast.error('Failed to update SKU status');
+      }
+    } catch (error) {
+      toast.error('Failed to update SKU status');
+    }
   };
 
   const getUsageStats = () => {
-    const demands = storage.getPharmacyDemands();
-    const orders = storage.getSeptraOrders();
-    
-    return skus.map(sku => {
-      const demandCount = demands.filter(d => d.skuId === sku.id).length;
-      const orderCount = orders.reduce((count, order) => 
-        count + order.lines.filter(line => line.skuId === sku.id).length, 0
-      );
-      
-      return {
-        skuId: sku.id,
-        demandCount,
-        orderCount,
-        totalUsage: demandCount + orderCount
-      };
-    });
+    // This would be enhanced with real usage data from the database
+    // For now, return empty stats as placeholder
+    return skus.map(sku => ({
+      skuId: sku.id,
+      demandCount: 0,
+      orderCount: 0,
+      totalUsage: 0
+    }));
   };
 
   const usageStats = getUsageStats();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <span className="ml-2 text-gray-600">Loading SKU data...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -286,193 +305,224 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
             Centralized SKU management - Single source of truth for all pharmaceutical products
           </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add New SKU
+        <div className="flex items-center space-x-3">
+          {/* Search */}
+          <div className="flex items-center space-x-2">
+            <Input
+              placeholder="Search SKUs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+              className="w-64"
+            />
+            <Button variant="outline" onClick={handleSearch}>
+              <Search className="h-4 w-4" />
             </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center">
-                <Package className="h-5 w-5 mr-2" />
-                {editingSKU ? 'Edit SKU' : 'Create New SKU'}
-              </DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <Tabs defaultValue="basic" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="basic">Basic Information</TabsTrigger>
-                  <TabsTrigger value="metadata">Metadata & Properties</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="basic" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">SKU Name *</Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="e.g., Paracetamol"
-                        required
-                      />
+          </div>
+          
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add New SKU
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center">
+                  <Package className="h-5 w-5 mr-2" />
+                  {editingSKU ? 'Edit SKU' : 'Create New SKU'}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <Tabs defaultValue="basic" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="basic">Basic Information</TabsTrigger>
+                    <TabsTrigger value="metadata">Metadata & Properties</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="basic" className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">SKU Name *</Label>
+                        <Input
+                          id="name"
+                          value={formData.name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="e.g., Paracetamol"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="code">SKU Code</Label>
+                        <Input
+                          id="code"
+                          value={formData.code}
+                          onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                          placeholder="Auto-generated if empty"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="code">SKU Code</Label>
-                      <Input
-                        id="code"
-                        value={formData.code}
-                        onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                        placeholder="Auto-generated if empty"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="category">Category *</Label>
+                        <Input
+                          id="category"
+                          value={formData.category}
+                          onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                          placeholder="e.g., Analgesics"
+                          list="categories"
+                          required
+                        />
+                        <datalist id="categories">
+                          {categories.map(cat => (
+                            <option key={cat} value={cat} />
+                          ))}
+                        </datalist>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="strength">Strength *</Label>
+                        <Input
+                          id="strength"
+                          value={formData.strength}
+                          onChange={(e) => setFormData(prev => ({ ...prev, strength: e.target.value }))}
+                          placeholder="e.g., 500mg"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="unit">Unit</Label>
+                        <select
+                          id="unit"
+                          className="w-full p-2 border rounded-md"
+                          value={formData.unit}
+                          onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                        >
+                          <option value="Pack">Pack</option>
+                          <option value="Bottle">Bottle</option>
+                          <option value="Box">Box</option>
+                          <option value="Vial">Vial</option>
+                          <option value="Tube">Tube</option>
+                          <option value="Strip">Strip</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="dosageForm">Dosage Form</Label>
+                        <Input
+                          id="dosageForm"
+                          value={formData.dosageForm}
+                          onChange={(e) => setFormData(prev => ({ ...prev, dosageForm: e.target.value }))}
+                          placeholder="e.g., Tablet, Capsule, Syrup"
+                        />
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
-                      <Label htmlFor="category">Category *</Label>
-                      <Input
-                        id="category"
-                        value={formData.category}
-                        onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                        placeholder="e.g., Analgesics"
-                        required
+                      <Label htmlFor="description">Description</Label>
+                      <Textarea
+                        id="description"
+                        value={formData.description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        placeholder="Detailed product description"
+                        rows={3}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="strength">Strength *</Label>
-                      <Input
-                        id="strength"
-                        value={formData.strength}
-                        onChange={(e) => setFormData(prev => ({ ...prev, strength: e.target.value }))}
-                        placeholder="e.g., 500mg"
-                        required
+                  </TabsContent>
+
+                  <TabsContent value="metadata" className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="packSize">Pack Size</Label>
+                        <Input
+                          id="packSize"
+                          value={formData.packSize}
+                          onChange={(e) => setFormData(prev => ({ ...prev, packSize: e.target.value }))}
+                          placeholder="e.g., 20 tablets"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="manufacturer">Manufacturer</Label>
+                        <Input
+                          id="manufacturer"
+                          value={formData.manufacturer}
+                          onChange={(e) => setFormData(prev => ({ ...prev, manufacturer: e.target.value }))}
+                          placeholder="e.g., Pfizer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="therapeuticClass">Therapeutic Class</Label>
+                        <Input
+                          id="therapeuticClass"
+                          value={formData.therapeuticClass}
+                          onChange={(e) => setFormData(prev => ({ ...prev, therapeuticClass: e.target.value }))}
+                          placeholder="e.g., NSAID"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="storageConditions">Storage Conditions</Label>
+                        <Input
+                          id="storageConditions"
+                          value={formData.storageConditions}
+                          onChange={(e) => setFormData(prev => ({ ...prev, storageConditions: e.target.value }))}
+                          placeholder="e.g., Store below 25°C"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="requiresExpiry"
+                        checked={formData.requiresExpiry}
+                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, requiresExpiry: checked }))}
                       />
+                      <Label htmlFor="requiresExpiry">Requires Expiry Date Tracking</Label>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="unit">Unit</Label>
-                      <select
-                        id="unit"
-                        className="w-full p-2 border rounded-md"
-                        value={formData.unit}
-                        onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                      >
-                        <option value="Pack">Pack</option>
-                        <option value="Bottle">Bottle</option>
-                        <option value="Box">Box</option>
-                        <option value="Vial">Vial</option>
-                        <option value="Tube">Tube</option>
-                        <option value="Strip">Strip</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="dosageForm">Dosage Form</Label>
-                      <Input
-                        id="dosageForm"
-                        value={formData.dosageForm}
-                        onChange={(e) => setFormData(prev => ({ ...prev, dosageForm: e.target.value }))}
-                        placeholder="e.g., Tablet, Capsule, Syrup"
+                      <Label htmlFor="customMetadata">Custom Metadata (JSON)</Label>
+                      <Textarea
+                        id="customMetadata"
+                        value={formData.customMetadata}
+                        onChange={(e) => setFormData(prev => ({ ...prev, customMetadata: e.target.value }))}
+                        placeholder='{"customField": "value", "anotherField": "value"}'
+                        rows={4}
                       />
+                      <p className="text-xs text-gray-500">
+                        Add custom fields as JSON for future expansion
+                      </p>
                     </div>
-                  </div>
+                  </TabsContent>
+                </Tabs>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea
-                      id="description"
-                      value={formData.description}
-                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="Detailed product description"
-                      rows={3}
-                    />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="metadata" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="packSize">Pack Size</Label>
-                      <Input
-                        id="packSize"
-                        value={formData.packSize}
-                        onChange={(e) => setFormData(prev => ({ ...prev, packSize: e.target.value }))}
-                        placeholder="e.g., 20 tablets"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="manufacturer">Manufacturer</Label>
-                      <Input
-                        id="manufacturer"
-                        value={formData.manufacturer}
-                        onChange={(e) => setFormData(prev => ({ ...prev, manufacturer: e.target.value }))}
-                        placeholder="e.g., Pfizer"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="therapeuticClass">Therapeutic Class</Label>
-                      <Input
-                        id="therapeuticClass"
-                        value={formData.therapeuticClass}
-                        onChange={(e) => setFormData(prev => ({ ...prev, therapeuticClass: e.target.value }))}
-                        placeholder="e.g., NSAID"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="storageConditions">Storage Conditions</Label>
-                      <Input
-                        id="storageConditions"
-                        value={formData.storageConditions}
-                        onChange={(e) => setFormData(prev => ({ ...prev, storageConditions: e.target.value }))}
-                        placeholder="e.g., Store below 25°C"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id="requiresExpiry"
-                      checked={formData.requiresExpiry}
-                      onCheckedChange={(checked) => setFormData(prev => ({ ...prev, requiresExpiry: checked }))}
-                    />
-                    <Label htmlFor="requiresExpiry">Requires Expiry Date Tracking</Label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="customMetadata">Custom Metadata (JSON)</Label>
-                    <Textarea
-                      id="customMetadata"
-                      value={formData.customMetadata}
-                      onChange={(e) => setFormData(prev => ({ ...prev, customMetadata: e.target.value }))}
-                      placeholder='{"customField": "value", "anotherField": "value"}'
-                      rows={4}
-                    />
-                    <p className="text-xs text-gray-500">
-                      Add custom fields as JSON for future expansion
-                    </p>
-                  </div>
-                </TabsContent>
-              </Tabs>
-
-              <div className="flex justify-end space-x-2 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  <Save className="h-4 w-4 mr-2" />
-                  {editingSKU ? 'Update SKU' : 'Create SKU'}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="flex justify-end space-x-2 pt-4 border-t">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isCreating}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isCreating}>
+                    {isCreating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        {editingSKU ? 'Updating...' : 'Creating...'}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        {editingSKU ? 'Update SKU' : 'Create SKU'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -494,7 +544,7 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
             <CardTitle className="text-lg">Categories</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{getUniqueCategories().length}</div>
+            <div className="text-2xl font-bold">{categories.length}</div>
             <p className="text-sm text-gray-600">
               unique categories
             </p>
