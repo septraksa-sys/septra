@@ -504,7 +504,6 @@ export function AdminLogistics({ user }: AdminLogisticsProps) {
                           );
                         })()}
                         </div>
-                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
