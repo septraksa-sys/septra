@@ -769,6 +769,22 @@ export class AuthService {
     // Shuffle the password
     return password.split('').sort(() => Math.random() - 0.5).join('');
   }
+
+  /**
+   * Listen to authentication state changes
+   * @param callback - Function to call when auth state changes
+   * @returns Subscription object with unsubscribe method
+   */
+  static onAuthStateChange(callback: (user: User | null) => void) {
+    return supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const user = await this.getCurrentUser();
+        callback(user);
+      } else {
+        callback(null);
+      }
+    });
+  }
 }
 
 // Error message constants
