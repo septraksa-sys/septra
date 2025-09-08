@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase-client';
 import { SKU } from '@/types/frontend';
-import { DatabaseSKU } from '@/types/database';
+import { DatabaseSKU, DatabaseSKUInsert } from '@/types/database';
 import { SKUTransformerFactory } from '@/lib/transformers/sku-transformer';
 
 export class SKUService {
@@ -57,19 +57,20 @@ export class SKUService {
       const code = skuData.code || this.transformer.generateSKUCode(skuData.name, skuData.strength);
 
       // Check for duplicate codes
-      const { data: existing } = await supabase
+      const { data: existing, error: duplicateError } = await supabase
         .from('skus')
         .select('id')
-        .eq('code', code)
-        .single();
+        .eq('code', code);
 
-      if (existing) {
+      if (duplicateError) throw duplicateError;
+      
+      if (existing && existing.length > 0) {
         throw new Error('SKU code already exists');
       }
 
-      // Create frontend SKU for validation
-      const frontendSKU: SKU = {
-        id: `sku_${Date.now()}`,
+      // Prepare data for validation (without ID - Supabase will generate it)
+      const validationSKU: Omit<SKU, 'id'> & { id?: string } = {
+        // No ID here - we'll let Supabase generate it
         code,
         name: skuData.name,
         description: skuData.description,
@@ -83,23 +84,36 @@ export class SKUService {
         createdBy: skuData.createdBy
       };
 
-      // Validate before transformation
-      const validation = this.transformer.validateForDatabase(frontendSKU);
-      if (!validation.success) {
-        throw new Error(`Validation failed: ${validation.errors?.join(', ')}`);
+      // Validate data (excluding ID validation)
+      const validation = this.validateSKUData(validationSKU);
+      if (!validation.valid) {
+        throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
-      // Transform to database format
-      const databaseSKU = this.transformer.toDatabase(frontendSKU);
+      // Prepare database SKU without ID field (let Supabase generate it)
+      const databaseSKU: DatabaseSKUInsert = {
+        code,
+        name: skuData.name,
+        description: skuData.description || null,
+        category: skuData.category,
+        strength: skuData.strength || null,
+        unit: skuData.unit,
+        metadata: skuData.metadata || {},
+        is_active: true,
+        created_by: skuData.createdBy,
+        // Supabase will set created_at and updated_at automatically with timestamps
+      };
 
+      // Insert data and return the newly created record
       const { data, error } = await supabase
         .from('skus')
         .insert(databaseSKU)
-        .select()
+        .select('*')  // Get the complete record including the generated ID
         .single();
 
       if (error) throw error;
-
+      
+      // Convert the database SKU to frontend format using the transformer
       return this.transformer.toFrontend(data);
     } catch (error) {
       console.error('Error creating SKU:', error);
@@ -323,6 +337,36 @@ export class SKUService {
     }
   }
 
+  // Validate SKU data without requiring ID
+  static validateSKUData(data: Omit<SKU, 'id'> & { id?: string }): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    // Required field validation
+    if (!data.code) errors.push('SKU code is required');
+    if (!data.name) errors.push('SKU name is required');
+    if (!data.category) errors.push('Category is required');
+    if (!data.unit) errors.push('Unit is required');
+    if (!data.createdBy) errors.push('Creator reference is required');
+    
+    // Business logic validation
+    if (data.code && !/^[A-Z0-9]+$/.test(data.code)) {
+      errors.push('SKU code must contain only uppercase letters and numbers');
+    }
+    
+    if (data.code && data.code.length > 20) {
+      errors.push('SKU code must be 20 characters or less');
+    }
+    
+    if (data.name && data.name.length > 255) {
+      errors.push('SKU name must be 255 characters or less');
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+  
   // Get SKU usage statistics
   static async getSKUUsageStats(skuId: string): Promise<{
     demandCount: number;

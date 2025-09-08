@@ -138,6 +138,9 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
             ...customMetadata
           }
         };
+        if(!editingSKU.id){
+          return
+        }
 
         const success = await SKUService.updateSKU(editingSKU.id, updates);
         if (success) {
@@ -648,8 +651,7 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
                         <div className="flex items-center space-x-2">
                           <Switch
                             checked={sku.isActive}
-                            onCheckedChange={() => toggleSKUStatus(sku.id)}
-                            size="sm"
+                            onCheckedChange={() => toggleSKUStatus(sku.id ? sku.id : "")}
                           />
                           <Badge variant={sku.isActive ? 'default' : 'secondary'}>
                             {sku.isActive ? 'Active' : 'Inactive'}
@@ -681,7 +683,7 @@ export function AdminSKUEngine({ user }: AdminSKUEngineProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleDelete(sku.id)}
+                            onClick={() => handleDelete(sku.id || "")}
                             disabled={usage && usage.totalUsage > 0}
                           >
                             <Trash2 className="h-3 w-3" />
