@@ -13,10 +13,10 @@ import { User } from '@/types';
 function AppContent() {
   const { user, isLoading, login, logout } = useAuth();
 
-  useEffect(() => {
-    // Initialize local storage with seed data for fallback
-    seedDatabase();
-  }, []);
+  // useEffect(() => {
+  //   // Initialize local storage with seed data for fallback
+  //   seedDatabase();
+  // }, []);
 
   const handleLogin = (user: User) => {
     // Token is handled by the auth service
@@ -74,7 +74,7 @@ export default function Home() {
     const initializeApp = async () => {
       try {
         // Initialize local storage with seed data
-        seedDatabase();
+        // seedDatabase();
         
         const existingUser = await AuthService.getCurrentUser();
         setCurrentUser(existingUser);

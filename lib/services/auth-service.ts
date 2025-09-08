@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import validator from 'validator';
 import DOMPurify from 'dompurify';
+import { Database } from '@/database.types';
+import { DatabaseUser } from '@/types/database';
 
 // Rate limiting storage (in production, use Redis or database)
 const rateLimitStore = new Map<string, { attempts: number; lastAttempt: Date }>();
@@ -446,7 +448,7 @@ export class AuthService {
           rating: userData.role === 'supplier' ? 4.0 : null
         })
         .select()
-        .single();
+        .single() as { data: DatabaseUser, error: any };
 
       if (profileError) {
         console.error('Profile creation error:', profileError);
@@ -575,12 +577,12 @@ export class AuthService {
       }
 
       // Get user profile
-      const userId = authData?.user?.id || authData.user.id;
+      const userId = authData?.user?.id  ||'';
       const { data: profileData, error: profileError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .single() as { data: DatabaseUser | null, error: any };
 
       if (profileError || !profileData) {
         console.error('Profile fetch error:', profileError);
@@ -670,7 +672,7 @@ export class AuthService {
         .from('users')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .single() as { data: DatabaseUser | null, error: any };;
 
       if (profileError || !profileData) return null;
 

@@ -1,3 +1,5 @@
+// Import the database types from the root file which has the complete definition
+import { Database } from '../database.types'
 import { createClient } from '@supabase/supabase-js'
 
 // Use fallback values for demo purposes if environment variables are not set
@@ -9,7 +11,7 @@ if ((!supabaseUrl || !supabaseAnonKey) && process.env.NODE_ENV === 'production')
   throw new Error('Missing Supabase environment variables. Please check your .env.local file.')
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
