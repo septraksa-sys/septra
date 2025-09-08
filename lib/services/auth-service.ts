@@ -30,7 +30,7 @@ export class AuthService {
     confirmPassword: string;
     username: string;
     name: string;
-    role: 'pharmacy' | 'supplier';
+    role: 'pharmacy' | 'supplier' | 'admin';
   }): { isValid: boolean; errors: Record<string, string> } {
     const errors: Record<string, string> = {};
 
@@ -59,9 +59,7 @@ export class AuthService {
       errors.username = 'Username must be at least 2 characters long';
     } else if (sanitizedData.username.length > 50) {
       errors.username = 'Username must be less than 50 characters';
-    } else if (!/^[a-zA-Z0-9_]+$/.test(sanitizedData.username)) {
-      errors.username = 'Username can only contain letters, numbers, and underscores';
-    }
+    } 
 
     // Name validation
     if (!sanitizedData.name) {
@@ -70,9 +68,7 @@ export class AuthService {
       errors.name = 'Name must be at least 2 characters long';
     } else if (sanitizedData.name.length > 50) {
       errors.name = 'Name must be less than 50 characters';
-    } else if (!/^[a-zA-Z\s\-']+$/.test(sanitizedData.name)) {
-      errors.name = 'Name can only contain letters, spaces, hyphens, and apostrophes';
-    }
+    } 
 
     // Password validation
     if (!sanitizedData.password) {
@@ -213,10 +209,10 @@ export class AuthService {
       const { data, error } = await supabase
         .from('users')
         .select('id')
-        .eq('email', email.toLowerCase())
-        .single();
+        .eq('email', email.toLowerCase());
 
-      return !!data && !error;
+      // If we get any matching results, the email exists
+      return !!data && data.length > 0;
     } catch (error) {
       console.error('Error checking email existence:', error);
       return false;
@@ -235,10 +231,10 @@ export class AuthService {
       const { data, error } = await supabase
         .from('users')
         .select('id')
-        .ilike('name', username.toLowerCase())
-        .single();
+        .ilike('name', username.toLowerCase());
 
-      return !!data && !error;
+      // If we get any matching results, the username exists
+      return !!data && data.length > 0;
     } catch (error) {
       console.error('Error checking username existence:', error);
       return false;
@@ -359,7 +355,7 @@ export class AuthService {
     confirmPassword: string;
     username: string;
     name: string;
-    role: 'pharmacy' | 'supplier';
+    role: 'pharmacy' | 'supplier' | 'admin';
     address?: string;
     phone?: string;
     licenseNumber?: string;
@@ -368,6 +364,7 @@ export class AuthService {
     try {
       // Validate input data
       const validation = this.validateSignupData(userData);
+      console.log("info",{validation})
       if (!validation.isValid) {
         return { user: null, errors: validation.errors };
       }
@@ -389,6 +386,7 @@ export class AuthService {
           errors: { username: 'This username is already taken' }
         };
       }
+      console.log("info",{userData,usernameExists,emailExists})
 
       // Create auth user in Supabase
       const { data: authData, error: authError } = await supabase.auth.signUp({

@@ -20,7 +20,7 @@ interface EnhancedRegistrationFormProps {
 
 export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistrationFormProps) {
   const [step, setStep] = useState(1);
-  const [selectedRole, setSelectedRole] = useState<'pharmacy' | 'supplier' | null>(null);
+  const [selectedRole, setSelectedRole] = useState<'pharmacy' | 'supplier' | 'admin' | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
