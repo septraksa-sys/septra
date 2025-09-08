@@ -65,7 +65,7 @@ export function SupplierRFQs({ user }: SupplierRFQsProps) {
     
     // Filter RFQs for SKUs that this supplier can provide
     const suppliers = storage.getSuppliers();
-    const currentSupplier = suppliers.find(s => s.id === user.profileId);
+    const currentSupplier = suppliers.find(s => s.id === user.profileId) || null;
     setSupplier(currentSupplier);
     
     if (currentSupplier) {
@@ -73,7 +73,7 @@ export function SupplierRFQs({ user }: SupplierRFQsProps) {
       
       const relevantOrders = allSeptraOrders.filter(order => 
         openRFQs.some(rfq => rfq.septraOrderId === order.id) &&
-        order.lines.some(line => {
+        order?.lines?.some(line => {
           const sku = storage.getSKUs().find(s => s.id === line.skuId);
           const categoryMatch = sku && currentSupplier.categories.includes(sku.category);
           return categoryMatch;
@@ -176,7 +176,7 @@ export function SupplierRFQs({ user }: SupplierRFQsProps) {
         <div className="grid gap-6">
           {rfqs.map((rfq) => {
             const septraOrder = getSeptraOrder(rfq.septraOrderId);
-            const eligibleLines = septraOrder?.lines.filter(line => canSupplySKU(line.skuId)) || [];
+            const eligibleLines = septraOrder?.lines?.filter(line => canSupplySKU(line.skuId)) || [];
             const deadlineApproaching = isDeadlineApproaching(rfq.biddingDeadline);
 
             return (
@@ -249,7 +249,7 @@ export function SupplierRFQs({ user }: SupplierRFQsProps) {
                   {/* Eligible SKU Lines */}
                   <div>
                     <h4 className="font-medium mb-3">
-                      Eligible Items ({eligibleLines.length} of {septraOrder?.lines.length || 0})
+                      Eligible Items ({eligibleLines.length} of {septraOrder?.lines?.length || 0})
                     </h4>
                     {eligibleLines.length > 0 ? (
                       <Table>
