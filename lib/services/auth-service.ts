@@ -390,12 +390,9 @@ export class AuthService {
         };
       }
 
-      // Hash password
-      const hashedPassword = await this.hashPassword(userData.password);
-
       // Create auth user in Supabase
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userData.username ? `${userData.username}@temp.local` : userData.email.toLowerCase(),
+        email: userData.email.toLowerCase(),
         password: userData.password,
         options: {
           emailRedirectTo: undefined // Disable email confirmation for demo
@@ -436,8 +433,8 @@ export class AuthService {
 
       if (profileError) {
         console.error('Profile creation error:', profileError);
-        // Clean up auth user if profile creation fails
-        await supabase.auth.admin.deleteUser(authData.user.id);
+        // Note: In case of profile creation failure, the auth user will remain
+        // This is acceptable as they can try to complete their profile later
         return { 
           user: null, 
           errors: { general: 'Failed to create user profile. Please try again.' }
@@ -510,43 +507,13 @@ export class AuthService {
         };
       }
 
-      // Determine if input is email or username
-      const isEmail = credentials.emailOrUsername.includes('@');
-      
       // Authenticate with Supabase
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: isEmail ? credentials.emailOrUsername : `${credentials.emailOrUsername}@temp.com`, // Temp workaround
+        email: credentials.emailOrUsername, // Always treat as email for now
         password: credentials.password
       });
 
-      // If not email, try to find user by username and then authenticate
-      if (!isEmail) {
-        // Find user by username (using name field for now)
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('email, id')
-          .eq('email', `${credentials.emailOrUsername}@temp.local`)
-          .single();
-
-        // For username login, we'll use a temporary email format
-        const tempEmail = `${credentials.emailOrUsername}@temp.local`;
-        const { data: authByUsername, error: authByUsernameError } = await supabase.auth.signInWithPassword({
-          email: tempEmail,
-          password: credentials.password
-        });
-
-        if (authByUsernameError || !authByUsername.user) {
-          return {
-            user: null,
-            token: null,
-            errors: { general: 'Invalid username or password' },
-            rateLimitInfo: rateLimit
-          };
-        }
-        
-        // Update authData to use the username auth result
-        const authData = authByUsername;
-      } else if (authError || !authData.user) {
+      if (authError || !authData.user) {
         return {
           user: null,
           token: null,
@@ -556,7 +523,7 @@ export class AuthService {
       }
 
       // Get user profile
-      const userId = authData?.user?.id  ||'';
+      const userId = authData.user.id;
       const { data: profileData, error: profileError } = await supabase
         .from('users')
         .select('*')
@@ -572,9 +539,6 @@ export class AuthService {
           rateLimitInfo: rateLimit
         };
       }
-
-      // Check account status (you can add status field to users table)
-      // For now, all accounts are considered active
 
       // Transform to frontend User type
       const user: User = {
