@@ -7,6 +7,7 @@ import { AuthService } from '@/lib/services/auth-service';
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isLoggingOut: boolean;
   isAuthenticated: boolean;
   login: (user: User) => void;
   logout: () => Promise<void>;
@@ -22,6 +23,7 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     initializeAuth();
@@ -29,13 +31,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Subscribe to Supabase auth state changes
     const { data: { subscription } } = AuthService.onAuthStateChange(async (user) => {
       setUser(user);
-      setIsLoading(false);
+      if (!isLoggingOut) {
+        setIsLoading(false);
+      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [isLoggingOut]);
 
   const initializeAuth = async () => {
     try {
@@ -46,18 +50,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('Auth initialization error:', error);
       setUser(null);
     } finally {
-      setIsLoading(false);
+      if (!isLoggingOut) {
+        setIsLoading(false);
+      }
     }
   };
 
   const login = (user: User) => {
     setUser(user);
+    setIsLoading(false);
+    setIsLoggingOut(false);
   };
 
   const logout = async () => {
-    const success = await AuthService.signOut();
-    if (success) {
+    setIsLoggingOut(true);
+    
+    try {
+      // Add a small delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const success = await AuthService.signOut();
+      if (success) {
+        setUser(null);
+        // Clear any cached data if needed
+        if (typeof window !== 'undefined') {
+          // Optional: Clear any app-specific cache
+          console.log('🔄 Clearing user session data...');
+        }
+      } else {
+        throw new Error('Logout failed');
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if logout fails, clear local state
       setUser(null);
+    } finally {
+      setIsLoggingOut(false);
+      setIsLoading(false);
     }
   };
 
@@ -74,6 +103,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextType = {
     user,
     isLoading,
+    isLoggingOut,
     isAuthenticated: !!user,
     login,
     logout,
