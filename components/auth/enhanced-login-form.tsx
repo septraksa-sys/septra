@@ -19,17 +19,12 @@ interface EnhancedLoginFormProps {
 }
 
 export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
-  const [emailOrUsername, setEmailOrUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [showRegistration, setShowRegistration] = useState(false);
-  const [rateLimitInfo, setRateLimitInfo] = useState<{
-    remainingAttempts: number;
-    resetTime?: Date;
-  } | null>(null);
 
   // Real-time validation states
   const [emailValidation, setEmailValidation] = useState<{
@@ -37,27 +32,17 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
     message: string;
   }>({ isValid: true, message: '' });
 
-  useEffect(() => {
-    // Initialize auth state
-    AuthStateManager.initializeAuthState();
-  }, []);
 
-  // Real-time email/username validation
+  // Real-time email validation
   useEffect(() => {
-    if (!emailOrUsername) {
+    if (!email) {
       setEmailValidation({ isValid: true, message: '' });
       return;
     }
 
-    const isEmail = emailOrUsername.includes('@');
-    if (isEmail) {
-      const validation = FormValidator.validateEmailRealTime(emailOrUsername);
+    const validation = FormValidator.validateEmailRealTime(email);
       setEmailValidation(validation);
-    } else {
-      const validation = FormValidator.validateUsernameRealTime(emailOrUsername);
-      setEmailValidation(validation);
-    }
-  }, [emailOrUsername]);
+  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,25 +50,9 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
     setErrors({});
 
     try {
-      const clientIP = getClientIP();
-      
-      const result = await AuthService.authenticateUser(
-        { emailOrUsername, password },
-        clientIP
-      );
+      const result = await AuthService.authenticateUser({ email, password });
 
-      if (result.rateLimitInfo) {
-        setRateLimitInfo(result.rateLimitInfo);
-      }
-
-      if (result.user && result.token) {
-        // Store token if remember me is checked
-        if (rememberMe) {
-          TokenManager.storeToken(result.token, result.user);
-        }
-        
-        // Handle successful login
-        AuthStateManager.handleLoginSuccess(result.user, result.token);
+      if (result.user) {
         onLogin(result.user);
       } else {
         setErrors(result.errors);
@@ -100,18 +69,10 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
     onLogin(user);
   };
 
-  const getInputValidationIcon = (isValid: boolean, hasContent: boolean) => {
-    if (!hasContent) return null;
-    return isValid ? (
-      <CheckCircle className="h-4 w-4 text-green-500" />
-    ) : (
-      <AlertTriangle className="h-4 w-4 text-red-500" />
-    );
-  };
 
   if (showRegistration) {
     return (
-      <EnhancedRegistrationForm 
+      <EnhancedRegistrationForm
         onSuccess={handleRegistrationSuccess} 
         onBack={() => setShowRegistration(false)} 
       />
@@ -143,18 +104,6 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
           <p className="text-gray-500 text-sm mt-2">From Demand to Delivery — Unified, Transparent, Secure</p>
         </div>
 
-        {/* Rate Limit Warning */}
-        {rateLimitInfo && rateLimitInfo.remainingAttempts <= 2 && (
-          <Alert className="border-orange-200 bg-orange-50 animate-slide-up">
-            <Clock className="h-4 w-4" />
-            <AlertDescription className="text-orange-700">
-              {rateLimitInfo.remainingAttempts > 0 
-                ? `${rateLimitInfo.remainingAttempts} login attempts remaining`
-                : `Too many attempts. Try again after ${rateLimitInfo.resetTime?.toLocaleTimeString()}`
-              }
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Login Form */}
         <Card className="shadow-2xl border-0 bg-white/90 backdrop-blur-md relative">
@@ -167,31 +116,20 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="emailOrUsername">Email or Username</Label>
+                <Label htmlFor="email">Email Address</Label>
                 <div className="relative">
                   <Input
-                    id="emailOrUsername"
-                    type="text"
-                    placeholder="Enter your email or username"
-                    value={emailOrUsername}
-                    onChange={(e) => setEmailOrUsername(e.target.value)}
+                    id="email"
+                    type="email"
+                    placeholder="Enter your email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
-                    className={`h-12 pr-10 border-gray-200 focus:border-indigo-500 focus:ring-indigo-500 ${
-                      emailOrUsername && !emailValidation.isValid ? 'border-red-300' : 
-                      emailOrUsername && emailValidation.isValid ? 'border-green-300' : ''
-                    }`}
+                    className="h-12 border-gray-200 focus:border-indigo-500 focus:ring-indigo-500"
                   />
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                    {getInputValidationIcon(emailValidation.isValid, !!emailOrUsername)}
-                  </div>
                 </div>
-                {emailOrUsername && emailValidation.message && (
-                  <p className={`text-sm ${emailValidation.isValid ? 'text-green-600' : 'text-red-600'}`}>
-                    {emailValidation.message}
-                  </p>
-                )}
-                {errors.emailOrUsername && (
-                  <p className="text-sm text-red-600">{errors.emailOrUsername}</p>
+                {errors.email && (
+                  <p className="text-sm text-red-600">{errors.email}</p>
                 )}
               </div>
 
@@ -220,11 +158,9 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
                 )}
               </div>
 
-              {/* Remember Me */}
               {/* General Error */}
               {errors.general && (
                 <Alert className="border-red-200 bg-red-50 animate-slide-up">
-                  <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-red-600">{errors.general}</AlertDescription>
                 </Alert>
               )}
@@ -232,7 +168,7 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
               <Button 
                 type="submit" 
                 className="w-full h-12 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
-                disabled={isLoading || (rateLimitInfo?.remainingAttempts === 0)}
+                disabled={isLoading}
               >
                 {isLoading ? (
                   <div className="flex items-center">
@@ -273,7 +209,7 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
                 <button
                   key={index}
                   onClick={() => {
-                    setEmailOrUsername(account.email);
+                    setEmail(account.email);
                     setPassword(account.password);
                   }}
                   className="w-full p-4 text-left border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 flex items-center space-x-3 hover:shadow-md"

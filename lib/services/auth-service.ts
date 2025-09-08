@@ -1,26 +1,16 @@
 import { supabase } from '@/lib/supabase-client';
 import { User } from '@/types';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import validator from 'validator';
-import DOMPurify from 'dompurify';
-import { Database } from '@/database.types';
 import { DatabaseUser } from '@/types/database';
 
-// Rate limiting storage (in production, use Redis or database)
-const rateLimitStore = new Map<string, { attempts: number; lastAttempt: Date }>();
-
-// JWT secret (in production, use environment variable)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
-
 /**
- * Comprehensive Authentication Service
- * Handles user registration, login, validation, and security
+ * Supabase-Native Authentication Service
+ * Uses Supabase's built-in authentication without client-side token management
  */
 export class AuthService {
   
   /**
-   * Validates user signup data with comprehensive rules
+   * Validates user signup data with updated requirements
    * @param userData - User registration data
    * @returns Validation result with errors if any
    */
@@ -28,63 +18,43 @@ export class AuthService {
     email: string;
     password: string;
     confirmPassword: string;
-    username: string;
     name: string;
     role: 'pharmacy' | 'supplier' | 'admin';
   }): { isValid: boolean; errors: Record<string, string> } {
     const errors: Record<string, string> = {};
 
-    // Sanitize inputs
-    const sanitizedData = {
-      email: DOMPurify.sanitize(userData.email.trim().toLowerCase()),
-      username: DOMPurify.sanitize(userData.username.trim().toLowerCase()),
-      name: DOMPurify.sanitize(userData.name.trim()),
-      password: userData.password, // Don't sanitize passwords
-      confirmPassword: userData.confirmPassword
-    };
-
     // Email validation
-    if (!sanitizedData.email) {
+    if (!userData.email) {
       errors.email = 'Email is required';
-    } else if (!validator.isEmail(sanitizedData.email)) {
+    } else if (!validator.isEmail(userData.email)) {
       errors.email = 'Please enter a valid email address';
-    } else if (sanitizedData.email.length > 255) {
+    } else if (userData.email.length > 255) {
       errors.email = 'Email must be less than 255 characters';
     }
 
-    // Username validation
-    if (!sanitizedData.username) {
-      errors.username = 'Username is required';
-    } else if (sanitizedData.username.length < 2) {
-      errors.username = 'Username must be at least 2 characters long';
-    } else if (sanitizedData.username.length > 50) {
-      errors.username = 'Username must be less than 50 characters';
-    } 
-
-    // Name validation
-    if (!sanitizedData.name) {
-      errors.name = 'Name is required';
-    } else if (sanitizedData.name.length < 2) {
-      errors.name = 'Name must be at least 2 characters long';
-    } else if (sanitizedData.name.length > 50) {
-      errors.name = 'Name must be less than 50 characters';
-    } 
-
-    // Password validation
-    if (!sanitizedData.password) {
+    // Password validation (updated requirements: 2-16 characters)
+    if (!userData.password) {
       errors.password = 'Password is required';
-    } else {
-      const passwordErrors = this.validatePasswordStrength(sanitizedData.password);
-      if (passwordErrors.length > 0) {
-        errors.password = passwordErrors[0]; // Show first error
-      }
+    } else if (userData.password.length < 2) {
+      errors.password = 'Password must be at least 2 characters long';
+    } else if (userData.password.length > 16) {
+      errors.password = 'Password must be less than 16 characters';
     }
 
     // Confirm password validation
-    if (!sanitizedData.confirmPassword) {
+    if (!userData.confirmPassword) {
       errors.confirmPassword = 'Please confirm your password';
-    } else if (sanitizedData.password !== sanitizedData.confirmPassword) {
+    } else if (userData.password !== userData.confirmPassword) {
       errors.confirmPassword = 'Passwords do not match';
+    }
+
+    // Name validation (updated requirements: 2-50 characters)
+    if (!userData.name) {
+      errors.name = 'Name is required';
+    } else if (userData.name.length < 2) {
+      errors.name = 'Name must be at least 2 characters long';
+    } else if (userData.name.length > 50) {
+      errors.name = 'Name must be less than 50 characters';
     }
 
     // Role validation
@@ -104,35 +74,21 @@ export class AuthService {
    * @returns Validation result
    */
   static validateLoginData(credentials: {
-    emailOrUsername: string;
+    email: string;
     password: string;
   }): { isValid: boolean; errors: Record<string, string> } {
     const errors: Record<string, string> = {};
 
-    // Sanitize inputs
-    const sanitized = {
-      emailOrUsername: DOMPurify.sanitize(credentials.emailOrUsername.trim().toLowerCase()),
-      password: credentials.password // Don't sanitize passwords
-    };
-
-    // Email/Username validation
-    if (!sanitized.emailOrUsername) {
-      errors.emailOrUsername = 'Email or username is required';
-    } else {
-      // Check if it's an email or username format
-      const isEmail = sanitized.emailOrUsername.includes('@');
-      if (isEmail && !validator.isEmail(sanitized.emailOrUsername)) {
-        errors.emailOrUsername = 'Please enter a valid email address';
-      } else if (!isEmail && (sanitized.emailOrUsername.length < 3 || !/^[a-zA-Z0-9_]+$/.test(sanitized.emailOrUsername))) {
-        errors.emailOrUsername = 'Username must be at least 2 characters and contain only letters, numbers, and underscores';
-      }
+    // Email validation
+    if (!credentials.email) {
+      errors.email = 'Email is required';
+    } else if (!validator.isEmail(credentials.email)) {
+      errors.email = 'Please enter a valid email address';
     }
 
     // Password validation
-    if (!sanitized.password) {
+    if (!credentials.password) {
       errors.password = 'Password is required';
-    } else if (sanitized.password.length < 1) {
-      errors.password = 'Password cannot be empty';
     }
 
     return {
@@ -142,210 +98,7 @@ export class AuthService {
   }
 
   /**
-   * Validates password strength with comprehensive rules
-   * @param password - Password to validate
-   * @returns Array of error messages
-   */
-  static validatePasswordStrength(password: string): string[] {
-    const errors: string[] = [];
-
-    if (password.length < 2) {
-      errors.push('Password must be at least 2 characters long');
-    }
-
-    if (password.length > 16) {
-      errors.push('Password must be less than 16 characters');
-    }
-
-    // Check for common weak passwords
-    const commonPasswords = ['password', '12345678', 'qwerty123', 'admin123'];
-    if (commonPasswords.some(weak => password.toLowerCase().includes(weak))) {
-      errors.push('Password is too common, please choose a stronger password');
-    }
-
-    return errors;
-  }
-
-  /**
-   * Calculates password strength score (0-100)
-   * @param password - Password to analyze
-   * @returns Strength score and level
-   */
-  static calculatePasswordStrength(password: string): { score: number; level: 'weak' | 'fair' | 'good' | 'strong' } {
-    let score = 0;
-
-    // Length scoring
-    if (password.length >= 8) score += 20;
-    if (password.length >= 12) score += 10;
-    if (password.length >= 16) score += 10;
-
-    // Character variety scoring
-    if (/[a-z]/.test(password)) score += 10;
-    if (/[A-Z]/.test(password)) score += 10;
-    if (/\d/.test(password)) score += 10;
-    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) score += 15;
-
-    // Complexity scoring
-    if (/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) score += 10;
-    if (/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/.test(password)) score += 15;
-
-    // Determine level
-    let level: 'weak' | 'fair' | 'good' | 'strong';
-    if (score < 40) level = 'weak';
-    else if (score < 60) level = 'fair';
-    else if (score < 80) level = 'good';
-    else level = 'strong';
-
-    return { score: Math.min(score, 100), level };
-  }
-
-  /**
-   * Checks if email already exists in database
-   * @param email - Email to check
-   * @returns True if email exists
-   */
-  static async checkEmailExists(email: string): Promise<boolean> {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email.toLowerCase());
-
-      // If we get any matching results, the email exists
-      return !!data && data.length > 0;
-    } catch (error) {
-      console.error('Error checking email existence:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Checks if username already exists in database
-   * @param username - Username to check
-   * @returns True if username exists
-   */
-  static async checkUsernameExists(username: string): Promise<boolean> {
-    try {
-      // For now, we'll use the name field as username
-      // In production, you might want a separate username field
-      const { data, error } = await supabase
-        .from('users')
-        .select('id')
-        .ilike('name', username.toLowerCase());
-
-      // If we get any matching results, the username exists
-      return !!data && data.length > 0;
-    } catch (error) {
-      console.error('Error checking username existence:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Hashes password using bcrypt
-   * @param password - Plain text password
-   * @returns Hashed password
-   */
-  static async hashPassword(password: string): Promise<string> {
-    const saltRounds = 12;
-    return await bcrypt.hash(password, saltRounds);
-  }
-
-  /**
-   * Verifies password against hash
-   * @param password - Plain text password
-   * @param hash - Stored password hash
-   * @returns True if password matches
-   */
-  static async verifyPassword(password: string, hash: string): Promise<boolean> {
-    return await bcrypt.compare(password, hash);
-  }
-
-  /**
-   * Generates JWT authentication token
-   * @param user - User object
-   * @returns JWT token
-   */
-  static generateAuthToken(user: User): string {
-    const payload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      name: user.name,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
-    };
-
-    return jwt.sign(payload, JWT_SECRET);
-  }
-
-  /**
-   * Verifies and decodes JWT token
-   * @param token - JWT token
-   * @returns Decoded user data or null
-   */
-  static verifyAuthToken(token: string): any | null {
-    try {
-      return jwt.verify(token, JWT_SECRET);
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Checks rate limiting for login attempts
-   * @param identifier - IP address or user identifier
-   * @returns Rate limit status
-   */
-  static checkRateLimit(identifier: string): { 
-    allowed: boolean; 
-    remainingAttempts: number; 
-    resetTime?: Date 
-  } {
-    const now = new Date();
-    const windowMs = 15 * 60 * 1000; // 15 minutes
-    const maxAttempts = 5;
-
-    const record = rateLimitStore.get(identifier);
-
-    if (!record) {
-      // First attempt
-      rateLimitStore.set(identifier, { attempts: 1, lastAttempt: now });
-      return { allowed: true, remainingAttempts: maxAttempts - 1 };
-    }
-
-    // Check if window has expired
-    const timeSinceLastAttempt = now.getTime() - record.lastAttempt.getTime();
-    if (timeSinceLastAttempt > windowMs) {
-      // Reset window
-      rateLimitStore.set(identifier, { attempts: 1, lastAttempt: now });
-      return { allowed: true, remainingAttempts: maxAttempts - 1 };
-    }
-
-    // Check if limit exceeded
-    if (record.attempts >= maxAttempts) {
-      const resetTime = new Date(record.lastAttempt.getTime() + windowMs);
-      return { 
-        allowed: false, 
-        remainingAttempts: 0, 
-        resetTime 
-      };
-    }
-
-    // Increment attempts
-    record.attempts++;
-    record.lastAttempt = now;
-    rateLimitStore.set(identifier, record);
-
-    return { 
-      allowed: true, 
-      remainingAttempts: maxAttempts - record.attempts 
-    };
-  }
-
-  /**
-   * Creates a new user account with full validation
+   * Creates a new user account using Supabase Auth
    * @param userData - User registration data
    * @returns Created user or null with errors
    */
@@ -353,7 +106,6 @@ export class AuthService {
     email: string;
     password: string;
     confirmPassword: string;
-    username: string;
     name: string;
     role: 'pharmacy' | 'supplier' | 'admin';
     address?: string;
@@ -364,12 +116,11 @@ export class AuthService {
     try {
       // Validate input data
       const validation = this.validateSignupData(userData);
-      console.log("info",{validation})
       if (!validation.isValid) {
         return { user: null, errors: validation.errors };
       }
 
-      // Check email uniqueness
+      // Check if email already exists
       const emailExists = await this.checkEmailExists(userData.email);
       if (emailExists) {
         return { 
@@ -378,22 +129,16 @@ export class AuthService {
         };
       }
 
-      // Check username uniqueness
-      const usernameExists = await this.checkUsernameExists(userData.username);
-      if (usernameExists) {
-        return { 
-          user: null, 
-          errors: { username: 'This username is already taken' }
-        };
-      }
-      console.log("info",{userData,usernameExists,emailExists})
-
       // Create auth user in Supabase
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email.toLowerCase(),
         password: userData.password,
         options: {
-          emailRedirectTo: undefined // Disable email confirmation for demo
+          emailRedirectTo: undefined, // Disable email confirmation for demo
+          data: {
+            name: userData.name,
+            role: userData.role
+          }
         }
       });
 
@@ -401,7 +146,7 @@ export class AuthService {
         console.error('Supabase auth error:', authError);
         return { 
           user: null, 
-          errors: { general: 'Failed to create account. Please try again.' }
+          errors: { general: authError.message || 'Failed to create account' }
         };
       }
 
@@ -427,12 +172,10 @@ export class AuthService {
           rating: userData.role === 'supplier' ? 4.0 : null
         })
         .select()
-        .single() as { data: DatabaseUser, error: any };
+        .single();
 
       if (profileError) {
         console.error('Profile creation error:', profileError);
-        // Note: In case of profile creation failure, the auth user will remain
-        // This is acceptable as they can try to complete their profile later
         return { 
           user: null, 
           errors: { general: 'Failed to create user profile. Please try again.' }
@@ -466,75 +209,51 @@ export class AuthService {
   }
 
   /**
-   * Authenticates user with email/username and password
+   * Authenticates user with email and password using Supabase
    * @param credentials - Login credentials
-   * @param clientIP - Client IP for rate limiting
    * @returns Authentication result
    */
   static async authenticateUser(
-    credentials: { emailOrUsername: string; password: string },
-    clientIP: string = 'unknown'
+    credentials: { email: string; password: string }
   ): Promise<{ 
     user: User | null; 
-    token: string | null; 
     errors: Record<string, string>;
-    rateLimitInfo?: { remainingAttempts: number; resetTime?: Date };
   }> {
     try {
-      // Check rate limiting
-      const rateLimit = this.checkRateLimit(clientIP);
-      if (!rateLimit.allowed) {
-        return {
-          user: null,
-          token: null,
-          errors: { 
-            general: `Too many login attempts. Please try again after ${rateLimit.resetTime?.toLocaleTimeString()}`
-          },
-          rateLimitInfo: rateLimit
-        };
-      }
-
       // Validate input
       const validation = this.validateLoginData(credentials);
       if (!validation.isValid) {
         return { 
           user: null, 
-          token: null, 
-          errors: validation.errors,
-          rateLimitInfo: rateLimit
+          errors: validation.errors
         };
       }
 
       // Authenticate with Supabase
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: credentials.emailOrUsername, // Always treat as email for now
+        email: credentials.email.toLowerCase(),
         password: credentials.password
       });
 
       if (authError || !authData.user) {
         return {
           user: null,
-          token: null,
-          errors: { general: 'Invalid email or password' },
-          rateLimitInfo: rateLimit
+          errors: { general: 'Invalid email or password' }
         };
       }
 
       // Get user profile
-      const userId = authData.user.id;
       const { data: profileData, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', userId)
-        .single() as { data: DatabaseUser | null, error: any };
+        .eq('id', authData.user.id)
+        .single();
 
       if (profileError || !profileData) {
         console.error('Profile fetch error:', profileError);
         return {
           user: null,
-          token: null,
-          errors: { general: 'Account not found. Please contact support.' },
-          rateLimitInfo: rateLimit
+          errors: { general: 'Account not found. Please contact support.' }
         };
       }
 
@@ -554,43 +273,24 @@ export class AuthService {
         updatedAt: new Date(profileData.updated_at)
       };
 
-      // Generate JWT token
-      const token = this.generateAuthToken(user);
-
-      // Reset rate limit on successful login
-      rateLimitStore.delete(clientIP);
-
-      return { 
-        user, 
-        token, 
-        errors: {},
-        rateLimitInfo: { remainingAttempts: 5 }
-      };
+      return { user, errors: {} };
     } catch (error) {
       console.error('Authentication error:', error);
       return {
         user: null,
-        token: null,
         errors: { general: 'Authentication failed. Please try again.' }
       };
     }
   }
 
   /**
-   * Signs out user
+   * Signs out user using Supabase
    * @returns Success status
    */
   static async signOut(): Promise<boolean> {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      
-      // Clear any stored tokens
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('septra_current_user');
-      }
-      
       return true;
     } catch (error) {
       console.error('Sign out error:', error);
@@ -599,7 +299,7 @@ export class AuthService {
   }
 
   /**
-   * Gets current authenticated user
+   * Gets current authenticated user from Supabase
    * @returns Current user or null
    */
   static async getCurrentUser(): Promise<User | null> {
@@ -613,7 +313,7 @@ export class AuthService {
         .from('users')
         .select('*')
         .eq('id', user.id)
-        .single() as { data: DatabaseUser | null, error: any };;
+        .single();
 
       if (profileError || !profileData) return null;
 
@@ -638,79 +338,28 @@ export class AuthService {
   }
 
   /**
-   * Refreshes authentication token
-   * @returns New token or null
+   * Checks if email already exists in database
+   * @param email - Email to check
+   * @returns True if email exists
    */
-  static async refreshToken(): Promise<string | null> {
+  static async checkEmailExists(email: string): Promise<boolean> {
     try {
-      const { data, error } = await supabase.auth.refreshSession();
-      
-      if (error || !data.user) return null;
+      const { data, error } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email.toLowerCase())
+        .limit(1);
 
-      const user = await this.getCurrentUser();
-      if (!user) return null;
+      if (error) {
+        console.error('Error checking email existence:', error);
+        return false;
+      }
 
-      return this.generateAuthToken(user);
+      return !!data && data.length > 0;
     } catch (error) {
-      console.error('Token refresh error:', error);
-      return null;
+      console.error('Error checking email existence:', error);
+      return false;
     }
-  }
-
-  /**
-   * Validates and sanitizes user input
-   * @param input - Raw user input
-   * @param type - Type of input (email, username, name, etc.)
-   * @returns Sanitized and validated input
-   */
-  static sanitizeInput(input: string, type: 'email' | 'username' | 'name' | 'general'): string {
-    let sanitized = DOMPurify.sanitize(input.trim());
-
-    switch (type) {
-      case 'email':
-        sanitized = sanitized.toLowerCase();
-        break;
-      case 'username':
-        sanitized = sanitized.toLowerCase().replace(/[^a-z0-9_]/g, '');
-        break;
-      case 'name':
-        sanitized = sanitized.replace(/[^a-zA-Z\s\-']/g, '');
-        break;
-      default:
-        // General sanitization already applied
-        break;
-    }
-
-    return sanitized;
-  }
-
-  /**
-   * Generates secure random password
-   * @param length - Password length (default 12)
-   * @returns Secure random password
-   */
-  static generateSecurePassword(length: number = 12): string {
-    const lowercase = 'abcdefghijklmnopqrstuvwxyz';
-    const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const numbers = '0123456789';
-    const symbols = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-    
-    const allChars = lowercase + uppercase + numbers + symbols;
-    let password = '';
-    
-    // Ensure at least one character from each category
-    password += lowercase[Math.floor(Math.random() * lowercase.length)];
-    password += uppercase[Math.floor(Math.random() * uppercase.length)];
-    password += numbers[Math.floor(Math.random() * numbers.length)];
-    password += symbols[Math.floor(Math.random() * symbols.length)];
-    
-    // Fill remaining length with random characters
-    for (let i = 4; i < length; i++) {
-      password += allChars[Math.floor(Math.random() * allChars.length)];
-    }
-    
-    // Shuffle the password
-    return password.split('').sort(() => Math.random() - 0.5).join('');
   }
 
   /**
@@ -728,37 +377,128 @@ export class AuthService {
       }
     });
   }
+
+  /**
+   * Password strength calculation for UI feedback
+   * @param password - Password to analyze
+   * @returns Strength score and level
+   */
+  static calculatePasswordStrength(password: string): { score: number; level: 'weak' | 'fair' | 'good' | 'strong' } {
+    let score = 0;
+
+    // Length scoring (more lenient for 2-16 char requirement)
+    if (password.length >= 2) score += 20;
+    if (password.length >= 6) score += 20;
+    if (password.length >= 10) score += 20;
+
+    // Character variety scoring
+    if (/[a-z]/.test(password)) score += 10;
+    if (/[A-Z]/.test(password)) score += 10;
+    if (/\d/.test(password)) score += 10;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) score += 10;
+
+    // Determine level
+    let level: 'weak' | 'fair' | 'good' | 'strong';
+    if (score < 30) level = 'weak';
+    else if (score < 50) level = 'fair';
+    else if (score < 70) level = 'good';
+    else level = 'strong';
+
+    return { score: Math.min(score, 100), level };
+  }
+
+  /**
+   * Validates password strength with updated requirements
+   * @param password - Password to validate
+   * @returns Array of error messages
+   */
+  static validatePasswordStrength(password: string): string[] {
+    const errors: string[] = [];
+
+    if (password.length < 2) {
+      errors.push('Password must be at least 2 characters long');
+    }
+
+    if (password.length > 16) {
+      errors.push('Password must be less than 16 characters');
+    }
+
+    return errors;
+  }
+
+  /**
+   * Creates admin user for development (uses Supabase auth)
+   * @param email - Admin email
+   * @param password - Admin password
+   * @returns Created admin user or null
+   */
+  static async createAdminUser(email: string = 'admin@septra.com', password: string = 'admin123'): Promise<User | null> {
+    try {
+      // Check if running in development
+      const isDevelopment = process.env.NODE_ENV === 'development' || 
+                           process.env.ENABLE_ADMIN_SIGNUP !== 'false';
+      
+      if (!isDevelopment) {
+        console.warn('🚫 Admin user creation is disabled in production');
+        return null;
+      }
+
+      console.log('🔧 Creating development admin user...');
+      
+      // Check if admin already exists
+      const emailExists = await this.checkEmailExists(email);
+      if (emailExists) {
+        console.log('ℹ️ Admin user already exists');
+        return null;
+      }
+
+      // Create admin using the standard createUser method
+      const result = await this.createUser({
+        email,
+        password,
+        confirmPassword: password,
+        name: 'Administrator',
+        role: 'admin',
+        address: 'Septra HQ',
+        phone: '+1-555-0100'
+      });
+
+      if (result.user) {
+        console.log('✅ Development admin user created successfully');
+        console.log(`📧 Email: ${email}`);
+        console.log(`🔑 Password: ${password}`);
+        return result.user;
+      } else {
+        console.error('❌ Failed to create admin user:', result.errors);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Admin creation error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Sanitizes user input
+   * @param input - Raw user input
+   * @param type - Type of input
+   * @returns Sanitized input
+   */
+  static sanitizeInput(input: string, type: 'email' | 'name' | 'general'): string {
+    let sanitized = input.trim();
+
+    switch (type) {
+      case 'email':
+        sanitized = sanitized.toLowerCase();
+        break;
+      case 'name':
+        sanitized = sanitized.replace(/[^a-zA-Z\s\-']/g, '');
+        break;
+      default:
+        // General sanitization
+        break;
+    }
+
+    return sanitized;
+  }
 }
-
-// Error message constants
-export const AUTH_ERRORS = {
-  INVALID_EMAIL: 'Please enter a valid email address',
-  EMAIL_REQUIRED: 'Email is required',
-  EMAIL_EXISTS: 'An account with this email already exists',
-  PASSWORD_REQUIRED: 'Password is required',
-  PASSWORD_TOO_SHORT: 'Password must be at least 8 characters long',
-  PASSWORD_WEAK: 'Password must contain uppercase, lowercase, number, and special character',
-  PASSWORDS_DONT_MATCH: 'Passwords do not match',
-  USERNAME_REQUIRED: 'Username is required',
-  USERNAME_TOO_SHORT: 'Username must be at least 3 characters long',
-  USERNAME_TOO_LONG: 'Username must be less than 20 characters',
-  USERNAME_INVALID: 'Username can only contain letters, numbers, and underscores',
-  USERNAME_EXISTS: 'This username is already taken',
-  NAME_REQUIRED: 'Name is required',
-  NAME_TOO_SHORT: 'Name must be at least 2 characters long',
-  NAME_TOO_LONG: 'Name must be less than 50 characters',
-  NAME_INVALID: 'Name can only contain letters, spaces, hyphens, and apostrophes',
-  ROLE_REQUIRED: 'Please select an account type',
-  INVALID_CREDENTIALS: 'Invalid email/username or password',
-  ACCOUNT_LOCKED: 'Account temporarily locked due to too many failed attempts',
-  RATE_LIMITED: 'Too many login attempts. Please try again later.',
-  GENERAL_ERROR: 'An unexpected error occurred. Please try again.'
-} as const;
-
-// Password strength levels
-export const PASSWORD_STRENGTH = {
-  WEAK: { color: 'red', text: 'Weak' },
-  FAIR: { color: 'orange', text: 'Fair' },
-  GOOD: { color: 'yellow', text: 'Good' },
-  STRONG: { color: 'green', text: 'Strong' }
-} as const;

@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from '@/types';
 import { AuthService } from '@/lib/services/auth-service';
-import { supabase } from '@/lib/supabase-client';
 
 interface AuthContextType {
   user: User | null;
@@ -28,13 +27,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     initializeAuth();
     
     // Subscribe to Supabase auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const currentUser = await AuthService.getCurrentUser();
-        setUser(currentUser);
-      } else {
-        setUser(null);
-      }
+    const { data: { subscription } } = AuthService.onAuthStateChange(async (user) => {
+      setUser(user);
       setIsLoading(false);
     });
 
@@ -47,11 +41,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       // Get current user from Supabase session
       const currentUser = await AuthService.getCurrentUser();
-      if (currentUser) {
-        setUser(currentUser);
-      }
+      setUser(currentUser);
     } catch (error) {
       console.error('Auth initialization error:', error);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -62,18 +55,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const logout = async () => {
-    await AuthService.signOut();
-    setUser(null);
+    const success = await AuthService.signOut();
+    if (success) {
+      setUser(null);
+    }
   };
 
   const refreshUser = async () => {
     try {
       const currentUser = await AuthService.getCurrentUser();
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
-        await logout();
-      }
+      setUser(currentUser);
     } catch (error) {
       console.error('User refresh error:', error);
       await logout();
