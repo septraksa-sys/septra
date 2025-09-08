@@ -29,7 +29,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
   // Form data
   const [formData, setFormData] = useState({
     email: '',
-    username: '',
     password: '',
     confirmPassword: '',
     name: '',
@@ -42,7 +41,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
   // Real-time validation states
   const [validationStates, setValidationStates] = useState({
     email: { isValid: true, message: '', isChecking: false },
-    username: { isValid: true, message: '', isChecking: false },
     password: { isValid: true, message: '', strength: { score: 0, level: 'weak', color: 'red' } },
     confirmPassword: { isValid: true, message: '' },
     name: { isValid: true, message: '' }
@@ -89,41 +87,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
     return () => clearTimeout(timeoutId);
   }, [formData.email]);
 
-  // Real-time username validation with debouncing
-  useEffect(() => {
-    if (!formData.username) {
-      setValidationStates(prev => ({
-        ...prev,
-        username: { isValid: true, message: '', isChecking: false }
-      }));
-      return;
-    }
-
-    const timeoutId = setTimeout(async () => {
-      setValidationStates(prev => ({
-        ...prev,
-        username: { ...prev.username, isChecking: true }
-      }));
-
-      const validation = FormValidator.validateUsernameRealTime(formData.username);
-      
-      // Check if username exists
-      let finalValidation = validation;
-      if (validation.isValid) {
-        const exists = await AuthService.checkUsernameExists(formData.username);
-        if (exists) {
-          finalValidation = { isValid: false, message: 'Username already taken' };
-        }
-      }
-
-      setValidationStates(prev => ({
-        ...prev,
-        username: { ...finalValidation, isChecking: false }
-      }));
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [formData.username]);
 
   // Real-time password validation
   useEffect(() => {
@@ -142,6 +105,22 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
     }));
   }, [formData.password]);
 
+  // Real-time name validation
+  useEffect(() => {
+    if (!formData.name) {
+      setValidationStates(prev => ({
+        ...prev,
+        name: { isValid: true, message: '' }
+      }));
+      return;
+    }
+
+    const validation = FormValidator.validateNameRealTime(formData.name);
+    setValidationStates(prev => ({
+      ...prev,
+      name: validation
+    }));
+  }, [formData.name]);
   // Real-time confirm password validation
   useEffect(() => {
     if (!formData.confirmPassword) {
@@ -194,7 +173,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
         email: formData.email,
         password: formData.password,
         confirmPassword: formData.confirmPassword,
-        username: formData.username,
         name: formData.name,
         role: selectedRole!,
         address: formData.address,
@@ -204,8 +182,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
       });
 
       if (result.user) {
-        // Handle successful registration
-        AuthStateManager.handleLoginSuccess(result.user, AuthService.generateAuthToken(result.user));
         onSuccess(result.user);
       } else {
         setErrors(result.errors);
@@ -218,21 +194,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
     }
   };
 
-  const getValidationIcon = (field: keyof typeof validationStates) => {
-    const state = validationStates[field];
-    const hasContent = formData[field as keyof typeof formData];
-    
-    if (!hasContent) return null;
-    if ('isChecking' in state && state.isChecking) {
-      return <Loader2 className="h-4 w-4 animate-spin text-gray-400" />;
-    }
-    
-    return state.isValid ? (
-      <CheckCircle className="h-4 w-4 text-green-500" />
-    ) : (
-      <AlertTriangle className="h-4 w-4 text-red-500" />
-    );
-  };
 
   const getPasswordStrengthColor = (level: string) => {
     switch (level) {
@@ -245,10 +206,14 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
   };
 
   const isFormValid = () => {
-    return Object.values(validationStates).every(state => state.isValid) &&
-           formData.email && formData.username && formData.password && 
+    return validationStates.email.isValid && 
+           validationStates.password.isValid && 
+           validationStates.confirmPassword.isValid &&
+           validationStates.name.isValid &&
+           formData.email && formData.password && 
            formData.confirmPassword && formData.name &&
-           (selectedRole === 'pharmacy' ? formData.licenseNumber : formData.categories.length > 0);
+           (selectedRole === 'pharmacy' ? formData.licenseNumber : 
+            selectedRole === 'supplier' ? formData.categories.length > 0 : true);
   };
 
   if (step === 1) {
@@ -273,49 +238,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
             <CardContent className="space-y-4">
               <button
                 onClick={() => handleRoleSelection('pharmacy')}
-                className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 text-left"
-              >
-                <div className="flex items-center space-x-3">
-                  <Building2 className="h-8 w-8 text-indigo-600" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Pharmacy</h3>
-                    <p className="text-sm text-gray-600">Submit demands and participate in group purchasing</p>
-                  </div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleRoleSelection('supplier')}
-                className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 text-left"
-              >
-                <div className="flex items-center space-x-3">
-                  <Package className="h-8 w-8 text-indigo-600" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Supplier</h3>
-                    <p className="text-sm text-gray-600">Respond to RFQs and fulfill pharmaceutical orders</p>
-                  </div>
-                </div>
-              </button>
-
-              <Button 
-                variant="outline" 
-                onClick={onBack}
-                className="w-full"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Login
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg space-y-6">
-        <div className="text-center">
           <div className="mx-auto h-16 w-16 bg-indigo-600 rounded-full flex items-center justify-center mb-4">
             {selectedRole === 'pharmacy' ? (
               <Building2 className="h-8 w-8 text-white" />
@@ -338,58 +260,29 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Email and Username */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address *</Label>
-                  <div className="relative">
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => handleInputChange('email', e.target.value)}
-                      className={`pr-10 ${
-                        formData.email && !validationStates.email.isValid ? 'border-red-300' : 
-                        formData.email && validationStates.email.isValid ? 'border-green-300' : ''
-                      }`}
-                      placeholder="your@email.com"
-                      required
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      {getValidationIcon('email')}
-                    </div>
-                  </div>
-                  {formData.email && validationStates.email.message && (
-                    <p className={`text-sm ${validationStates.email.isValid ? 'text-green-600' : 'text-red-600'}`}>
-                      {validationStates.email.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="username">Username *</Label>
-                  <div className="relative">
-                    <Input
-                      id="username"
-                      value={formData.username}
-                      onChange={(e) => handleInputChange('username', e.target.value)}
-                      className={`pr-10 ${
-                        formData.username && !validationStates.username.isValid ? 'border-red-300' : 
-                        formData.username && validationStates.username.isValid ? 'border-green-300' : ''
-                      }`}
-                      placeholder="username123"
-                      required
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      {getValidationIcon('username')}
-                    </div>
-                  </div>
-                  {formData.username && validationStates.username.message && (
-                    <p className={`text-sm ${validationStates.username.isValid ? 'text-green-600' : 'text-red-600'}`}>
-                      {validationStates.username.message}
-                    </p>
-                  )}
-                </div>
+              {/* Email */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  className={`${
+                    formData.email && !validationStates.email.isValid ? 'border-red-300' : 
+                    formData.email && validationStates.email.isValid ? 'border-green-300' : ''
+                  }`}
+                  placeholder="your@email.com"
+                  required
+                />
+                {formData.email && validationStates.email.message && (
+                  <p className={`text-sm ${validationStates.email.isValid ? 'text-green-600' : 'text-red-600'}`}>
+                    {validationStates.email.message}
+                  </p>
+                )}
+                {errors.email && (
+                  <p className="text-sm text-red-600">{errors.email}</p>
+                )}
               </div>
 
               {/* Password Fields */}
@@ -472,13 +365,27 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
                 <Label htmlFor="name">
                   {selectedRole === 'pharmacy' ? 'Pharmacy Name' : 'Company Name'} *
                 </Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                  placeholder={selectedRole === 'pharmacy' ? 'ABC Pharmacy' : 'XYZ Pharmaceuticals'}
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    className={`${
+                      formData.name && !validationStates.name.isValid ? 'border-red-300' : 
+                      formData.name && validationStates.name.isValid ? 'border-green-300' : ''
+                    }`}
+                    placeholder={selectedRole === 'pharmacy' ? 'ABC Pharmacy' : 'XYZ Pharmaceuticals'}
+                    required
+                  />
+                </div>
+                {formData.name && validationStates.name.message && (
+                  <p className={`text-sm ${validationStates.name.isValid ? 'text-green-600' : 'text-red-600'}`}>
+                    {validationStates.name.message}
+                  </p>
+                )}
+                {errors.name && (
+                  <p className="text-sm text-red-600">{errors.name}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -512,22 +419,15 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
                       placeholder="PH001"
                       required
                     />
-                  </div>
-                )}
-                {selectedRole === 'admin' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="adminNote">Admin Access</Label>
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                      <p className="text-sm text-red-700">
-                        ⚠️ Admin accounts have full platform access. Only create for authorized personnel.
-                      </p>
-                    </div>
+                    {errors.licenseNumber && (
+                      <p className="text-sm text-red-600">{errors.licenseNumber}</p>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Supplier Categories */}
-              {selectedRole === 'supplier' && formData.categories.length === 0 && (
+              {selectedRole === 'supplier' && (
                 <div className="space-y-2">
                   <Label>Product Categories *</Label>
                   <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border rounded-md p-3">
@@ -544,7 +444,12 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
                       </div>
                     ))}
                   </div>
-                  <p className="text-sm text-red-600">Please select at least one category</p>
+                  {formData.categories.length === 0 && (
+                    <p className="text-sm text-red-600">Please select at least one category</p>
+                  )}
+                  {errors.categories && (
+                    <p className="text-sm text-red-600">{errors.categories}</p>
+                  )}
                 </div>
               )}
 
