@@ -73,9 +73,6 @@ export default function Home() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Initialize local storage with seed data
-        // seedDatabase();
-        
         const existingUser = await AuthService.getCurrentUser();
         setCurrentUser(existingUser);
       } catch (error) {

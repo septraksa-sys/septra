@@ -55,10 +55,10 @@ export class AuthService {
     // Username validation
     if (!sanitizedData.username) {
       errors.username = 'Username is required';
-    } else if (sanitizedData.username.length < 3) {
-      errors.username = 'Username must be at least 3 characters long';
-    } else if (sanitizedData.username.length > 20) {
-      errors.username = 'Username must be less than 20 characters';
+    } else if (sanitizedData.username.length < 2) {
+      errors.username = 'Username must be at least 2 characters long';
+    } else if (sanitizedData.username.length > 50) {
+      errors.username = 'Username must be less than 50 characters';
     } else if (!/^[a-zA-Z0-9_]+$/.test(sanitizedData.username)) {
       errors.username = 'Username can only contain letters, numbers, and underscores';
     }
@@ -92,7 +92,7 @@ export class AuthService {
     }
 
     // Role validation
-    if (!userData.role || !['pharmacy', 'supplier'].includes(userData.role)) {
+    if (!userData.role || !['pharmacy', 'supplier', 'admin'].includes(userData.role)) {
       errors.role = 'Please select a valid account type';
     }
 
@@ -128,7 +128,7 @@ export class AuthService {
       if (isEmail && !validator.isEmail(sanitized.emailOrUsername)) {
         errors.emailOrUsername = 'Please enter a valid email address';
       } else if (!isEmail && (sanitized.emailOrUsername.length < 3 || !/^[a-zA-Z0-9_]+$/.test(sanitized.emailOrUsername))) {
-        errors.emailOrUsername = 'Please enter a valid username';
+        errors.emailOrUsername = 'Username must be at least 2 characters and contain only letters, numbers, and underscores';
       }
     }
 
@@ -153,28 +153,12 @@ export class AuthService {
   static validatePasswordStrength(password: string): string[] {
     const errors: string[] = [];
 
-    if (password.length < 8) {
-      errors.push('Password must be at least 8 characters long');
+    if (password.length < 2) {
+      errors.push('Password must be at least 2 characters long');
     }
 
-    if (!/[A-Z]/.test(password)) {
-      errors.push('Password must contain at least one uppercase letter');
-    }
-
-    if (!/[a-z]/.test(password)) {
-      errors.push('Password must contain at least one lowercase letter');
-    }
-
-    if (!/\d/.test(password)) {
-      errors.push('Password must contain at least one number');
-    }
-
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-      errors.push('Password must contain at least one special character');
-    }
-
-    if (password.length > 128) {
-      errors.push('Password must be less than 128 characters');
+    if (password.length > 16) {
+      errors.push('Password must be less than 16 characters');
     }
 
     // Check for common weak passwords
@@ -411,7 +395,7 @@ export class AuthService {
 
       // Create auth user in Supabase
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userData.email.toLowerCase(),
+        email: userData.username ? `${userData.username}@temp.local` : userData.email.toLowerCase(),
         password: userData.password,
         options: {
           emailRedirectTo: undefined // Disable email confirmation for demo
@@ -540,26 +524,18 @@ export class AuthService {
         // Find user by username (using name field for now)
         const { data: userData, error: userError } = await supabase
           .from('users')
-          .select('email')
-          .ilike('name', credentials.emailOrUsername)
+          .select('email, id')
+          .eq('email', `${credentials.emailOrUsername}@temp.local`)
           .single();
 
-        if (userError || !userData) {
-          return {
-            user: null,
-            token: null,
-            errors: { general: 'Invalid username or password' },
-            rateLimitInfo: rateLimit
-          };
-        }
-
-        // Try authentication with found email
-        const { data: authByEmail, error: authByEmailError } = await supabase.auth.signInWithPassword({
-          email: userData.email,
+        // For username login, we'll use a temporary email format
+        const tempEmail = `${credentials.emailOrUsername}@temp.local`;
+        const { data: authByUsername, error: authByUsernameError } = await supabase.auth.signInWithPassword({
+          email: tempEmail,
           password: credentials.password
         });
 
-        if (authByEmailError || !authByEmail.user) {
+        if (authByUsernameError || !authByUsername.user) {
           return {
             user: null,
             token: null,
@@ -567,6 +543,9 @@ export class AuthService {
             rateLimitInfo: rateLimit
           };
         }
+        
+        // Update authData to use the username auth result
+        const authData = authByUsername;
       } else if (authError || !authData.user) {
         return {
           user: null,

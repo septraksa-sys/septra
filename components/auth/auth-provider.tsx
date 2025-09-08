@@ -2,14 +2,14 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from '@/types';
-import { AuthStateManager, TokenManager } from '@/lib/utils/auth-utils';
 import { AuthService } from '@/lib/services/auth-service';
+import { supabase } from '@/lib/supabase-client';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (user: User, token: string) => void;
+  login: (user: User) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -27,44 +27,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     initializeAuth();
     
-    // Subscribe to auth state changes
-    const unsubscribe = AuthStateManager.subscribe((newUser) => {
-      setUser(newUser);
+    // Subscribe to Supabase auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const currentUser = await AuthService.getCurrentUser();
+        setUser(currentUser);
+      } else {
+        setUser(null);
+      }
       setIsLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const initializeAuth = async () => {
     try {
-      // Check for stored token
-      const token = TokenManager.getToken();
-      if (token) {
-        // Verify token and get current user
-        const currentUser = await AuthService.getCurrentUser();
-        if (currentUser) {
-          setUser(currentUser);
-        } else {
-          // Invalid token, clear storage
-          TokenManager.clearToken();
-        }
+      // Get current user from Supabase session
+      const currentUser = await AuthService.getCurrentUser();
+      if (currentUser) {
+        setUser(currentUser);
       }
     } catch (error) {
       console.error('Auth initialization error:', error);
-      TokenManager.clearToken();
     } finally {
       setIsLoading(false);
     }
   };
 
-  const login = (user: User, token: string) => {
-    TokenManager.storeToken(token, user);
+  const login = (user: User) => {
     setUser(user);
   };
 
   const logout = async () => {
-    await AuthStateManager.handleLogout();
+    await AuthService.signOut();
     setUser(null);
   };
 
@@ -73,11 +71,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const currentUser = await AuthService.getCurrentUser();
       if (currentUser) {
         setUser(currentUser);
-        // Update stored user data
-        const token = TokenManager.getToken();
-        if (token) {
-          TokenManager.storeToken(token, currentUser);
-        }
       } else {
         await logout();
       }

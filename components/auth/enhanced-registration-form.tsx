@@ -514,10 +514,20 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
                     />
                   </div>
                 )}
+                {selectedRole === 'admin' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="adminNote">Admin Access</Label>
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                      <p className="text-sm text-red-700">
+                        ⚠️ Admin accounts have full platform access. Only create for authorized personnel.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Supplier Categories */}
-              {selectedRole === 'supplier' && (
+              {selectedRole === 'supplier' && formData.categories.length === 0 && (
                 <div className="space-y-2">
                   <Label>Product Categories *</Label>
                   <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border rounded-md p-3">
@@ -534,9 +544,7 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
                       </div>
                     ))}
                   </div>
-                  {formData.categories.length === 0 && (
-                    <p className="text-sm text-red-600">Please select at least one category</p>
-                  )}
+                  <p className="text-sm text-red-600">Please select at least one category</p>
                 </div>
               )}
 

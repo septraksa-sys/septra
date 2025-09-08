@@ -221,17 +221,6 @@ export function EnhancedLoginForm({ onLogin }: EnhancedLoginFormProps) {
               </div>
 
               {/* Remember Me */}
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="rememberMe"
-                  checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                />
-                <Label htmlFor="rememberMe" className="text-sm text-gray-600">
-                  Remember me for 30 days
-                </Label>
-              </div>
-
               {/* General Error */}
               {errors.general && (
                 <Alert className="border-red-200 bg-red-50 animate-slide-up">
