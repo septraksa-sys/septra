@@ -281,51 +281,6 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
       <div className="w-full max-w-lg space-y-6">
         <div className="text-center">
-                className="w-full p-6 border-2 border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200 text-left group"
-              >
-                <div className="flex items-center space-x-4">
-                  <div className="h-12 w-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200">
-                    <Building2 className="h-6 w-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Pharmacy</h3>
-                    <p className="text-sm text-gray-600">For retail pharmacies and healthcare providers</p>
-                  </div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleRoleSelection('supplier')}
-                className="w-full p-6 border-2 border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200 text-left group"
-              >
-                <div className="flex items-center space-x-4">
-                  <div className="h-12 w-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200">
-                    <Package className="h-6 w-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Supplier</h3>
-                    <p className="text-sm text-gray-600">For pharmaceutical suppliers and distributors</p>
-                  </div>
-                </div>
-              </button>
-            </CardContent>
-          </Card>
-
-          <div className="text-center">
-            <Button variant="ghost" onClick={onBack} className="text-gray-600 hover:text-gray-900">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Login
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl space-y-6">
-        <div className="text-center">
           <div className="mx-auto h-16 w-16 bg-indigo-600 rounded-full flex items-center justify-center mb-4">
             {selectedRole === 'pharmacy' ? (
               <Building2 className="h-8 w-8 text-white" />
