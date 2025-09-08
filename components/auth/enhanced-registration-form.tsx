@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AuthService } from '@/lib/services/auth-service';
-import { FormValidator, AuthStateManager } from '@/lib/utils/auth-utils';
+import { FormValidator } from '@/lib/utils/auth-utils';
 import { User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -238,6 +238,49 @@ export function EnhancedRegistrationForm({ onSuccess, onBack }: EnhancedRegistra
             <CardContent className="space-y-4">
               <button
                 onClick={() => handleRoleSelection('pharmacy')}
+                className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 text-left"
+              >
+                <div className="flex items-center space-x-3">
+                  <Building2 className="h-8 w-8 text-indigo-600" />
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Pharmacy</h3>
+                    <p className="text-sm text-gray-600">Submit demands and participate in group purchasing</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleRoleSelection('supplier')}
+                className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 text-left"
+              >
+                <div className="flex items-center space-x-3">
+                  <Package className="h-8 w-8 text-indigo-600" />
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Supplier</h3>
+                    <p className="text-sm text-gray-600">Respond to RFQs and fulfill pharmaceutical orders</p>
+                  </div>
+                </div>
+              </button>
+
+              <Button 
+                variant="outline" 
+                onClick={onBack}
+                className="w-full"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Login
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg space-y-6">
+        <div className="text-center">
                 className="w-full p-6 border-2 border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200 text-left group"
               >
                 <div className="flex items-center space-x-4">
