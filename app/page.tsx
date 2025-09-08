@@ -20,7 +20,7 @@ function AppContent() {
 
   const handleLogin = (user: User) => {
     // Token is handled by the auth service
-    login(user, ''); // Token is managed internally
+    login(user); // Token is managed internally by Supabase
   };
 
   if (isLoading) {
